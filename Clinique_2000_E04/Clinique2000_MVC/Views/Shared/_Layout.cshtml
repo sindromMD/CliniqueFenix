@@ -85,6 +85,7 @@
                                 <a asp-area="Identity" asp-page="/Account/Register" style="margin-bottom: 0px; color: white; text-decoration:none; padding-top: 8px">S'enregistrer</a>
                             </li>
                         }
+                        <partial name="_LoginPartial" />
 
 @*                         <li class="nav-item mx-2">
                             <a style="color:white;" class="nav-link custom-nav-link" asp-area="Cliniques" asp-controller="Consultation" asp-action="InfoConsultation">
@@ -94,11 +95,6 @@
 @*                        <li class="nav-item mx-2">
                             <a style="color:white;" class="nav-link custom-nav-link" asp-area="Patients" asp-controller="home" asp-action="Index">Patient</a>
                         </li>*@
-                    </ul>
-                    <ul class="navbar-nav">
-                        <li class="nav-item">
-                            <partial name="_LoginPartial" />
-                        </li>
                     </ul>
                 </div>
             </nav>
