@@ -56,6 +56,23 @@ namespace Clinique2000_Services.Services
             return await _context.SaveChangesAsync();
         }
 
+        public async Task<int> ResoumettreCliniqueParID(int id)
+        {
+            Clinique? clinique = await _context.Cliniques.FindAsync(id);
+            if (clinique == null)
+            {
+                throw new KeyNotFoundException($"Clinique avec l'identifiant {id} introuvable.");
+            }
+
+            if (clinique.Statut != StatutApprobationEnum.Refuse)
+            {
+                throw new InvalidOperationException("Seules les cliniques refusées peuvent être resoumises.");
+            }
+
+            clinique.Statut = StatutApprobationEnum.EnAttente;
+            return await _context.SaveChangesAsync();
+        }
+
         public async Task<int> ApprobationUtilisateurParID(int id)
         {
             throw new NotImplementedException();
