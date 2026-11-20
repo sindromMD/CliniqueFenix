@@ -17,11 +17,16 @@ namespace Clinique2000_Services.IServices
         string ObtenirIdUtilisateur();
         Task<int> ObtenirIdPatientDepuisUtilisateurAsync(string userId);
         Task<bool> PatientAConsultationPlanifieeAsync(int patientId);
+        DateTime ObtenirMaintenantClinique(int utcOffset);
+        Task<Consultation?> ObtenirRendezVousDuJourAsync(int patientId, int cliniqueId, DateTime date);
+        Task<bool> PeutAnnulerAsync(Consultation consultation);
+        Task<int> AnnulerRendezVousNonUtilisesAsync(DateTime maintenantUtc);
         Task FermerOuLaisserOuverteListeAttente(int listeattenteid);
         Task<Consultation> ObtenirConsultationParIdAsync(int consultationId);
         //Task<List<Consultation>> ObtenirListesConsultationIncludeUsersCourriel();
         Task<ListeAttenteVM> AppelerProchainPatient(int employeCliniqueID);
         Task<ListeAttenteVM> TerminerConsultation(int consultaionID, DetailsConsultation details);
         Task AnnulerConsultationAsync(Patient patient);
+        Task AnnulerConsultationAsync(int consultationId, int patientId);
     }
 }

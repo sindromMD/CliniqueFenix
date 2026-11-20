@@ -34,6 +34,15 @@ namespace Clinique2000_Services.Services
                             .ForJob(backupJobKey)
                             .WithSimpleSchedule(schedule =>
                             schedule.WithIntervalInHours(24).RepeatForever()));
+
+            var annulerRendezVousJobKey = JobKey.Create(nameof(AnnulerRendezVousNonUtilisesJob));
+            options
+                    .AddJob<AnnulerRendezVousNonUtilisesJob>(jobBuilder => jobBuilder.WithIdentity(annulerRendezVousJobKey))
+                    .AddTrigger(trigger =>
+                        trigger
+                            .ForJob(annulerRendezVousJobKey)
+                            .WithSimpleSchedule(schedule =>
+                            schedule.WithIntervalInMinutes(5).RepeatForever()));
         }
     }
 }

@@ -245,14 +245,6 @@ namespace Clinique2000_Services.Services
                                        .ToListAsync();
 
 
-            var index = plagesHoraires.FindIndex(ph => ph.Consultations.Any(c => c.StatutConsultation == StatutConsultation.DisponiblePourReservation));
-            if (index != -1)
-            {
-                plagesHoraires = plagesHoraires.Skip(index).ToList();
-            }
-
-
-
             foreach (var plageHoraire in plagesHoraires)
             {
                 plageHoraire.Consultations = await _context.Consultations

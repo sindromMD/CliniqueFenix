@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using Clinique2000_DataAccess.Initializer;
 using Microsoft.IdentityModel.Tokens;
 using Clinique2000_Utility.Constants;
+using Clinique2000_Utility;
 using Clinique2000_Core.Models;
 using Google;
 using Clinique2000_MVC.Hubs;
@@ -42,6 +43,7 @@ builder.Services.AddAuthentication().AddGoogle(googleOptions =>
 builder.Services.AddQuartzServices();
 builder.Services.AddControllersWithViews();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IClock, SystemClock>();
 
 builder.Services.AddCors(options =>
 {

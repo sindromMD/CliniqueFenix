@@ -3196,6 +3196,50 @@ $blue: #00B4FF;
     background: blue;
     transform: rotateY(180deg);
 }
+
+/* Liste d'attente – refonte */
+.slot-card {
+    border-radius: 0.5rem;
+
+    .card-body {
+        padding: 1.25rem;
+    }
+
+    &__time {
+        color: #2567bd;
+        font-size: 1.75rem;
+        font-weight: 700;
+    }
+
+    &__full {
+        min-height: 48px;
+    }
+}
+
+.rdv-card {
+    .card-header {
+        min-height: 56px;
+    }
+
+    &__cancel,
+    &__confirm {
+        min-height: 48px;
+    }
+
+    &__cancel {
+        width: 100%;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .rdv-card .card-body > dl {
+        padding: 0 !important;
+    }
+
+    .rdv-card__confirm {
+        width: 100%;
+    }
+}
  
 
 
