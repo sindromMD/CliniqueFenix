@@ -114,51 +114,64 @@
             &copy; 2023 - Clinique2000_MVC - <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
         </div>
     </footer>*@
-    <footer class="border-top footer text-muted">
-        <section class="footer-col">
-            <div>
-                <a id="clinque" asp-controller="Home" asp-action="Index">CLINIQUE2000 @* <img src="~/Images/Logo.png" alt="logo footer" class="logo"> *@</a>
-            </div>
-            <div>
-                <h5 class="">Liens Rapides</h5>
-                <ul class="mb-3 px-1 footer-links white-link">
-                    <li><a class="p1 " asp-area="" asp-controller="Home" asp-action="Index">Page d'accueil</a><li/>
-                    <li><a class="p1 " asp-area="Identity" asp-page="/Account/Login">Se connecter</a><li/>
-                    <li><a class="p1 " asp-controller="#" asp-action="#">A propos de nous</a><li />
-                    <li><a class="p1 " asp-controller="#" asp-action="Privacy">Privacy</a><li/>
-                </ul>
-            </div>
-            <div id="col-nousjoindre" >
-                <h5>Nous Joindre</h5>
-                <div>
-                    <i class="fa-solid fa-location-dot fa-xl icons-rs"></i>
-                    945 Ch. de Chambly,
-                    Longueuil, J4H 3M6
-
-                </div>
-               <div>
-                    <i class="fa-solid fa-envelope fa-xl icons-rs"></i>
-                    office@clinique.ca
-
+    <footer class="footer site-footer">
+        <div class="container">
+            <section class="site-footer-main" aria-label="Informations de Clinique2000">
+                <div class="footer-brand">
+                    <a class="footer-brand-link" asp-area="" asp-controller="Home" asp-action="Index" aria-label="Clinique2000 - Page d'accueil">
+                        <svg class="footer-brand-icon" viewBox="0 0 148 128" aria-hidden="true" focusable="false">
+                            <polygon fill="#00B4FF" points="64 128 8.574 96 8.574 32 64 0 119.426 32 119.426 96"></polygon>
+                            <circle fill="#fff" cx="120" cy="96" r="20"></circle>
+                            <path d="M120 85v22M109 96h22" stroke="#2567bd" stroke-width="4" stroke-linecap="round"></path>
+                        </svg>
+                        <span class="footer-brand-name">Clinique<span>2000</span></span>
+                    </a>
                 </div>
 
-                <div>
-                    <span><i class="fa-solid fa-calendar fa-xl icons-rs"></i></span>
-                    rdv@clinique.ca
-                </div>  
+                <nav class="site-footer-links" aria-label="Liens rapides">
+                    <h2 class="footer-heading">Liens rapides</h2>
+                    <ul>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Index">Page d'accueil</a></li>
+                        <li><a asp-area="Identity" asp-page="/Account/Login">Se connecter</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Privacy">Confidentialité</a></li>
+                    </ul>
+                </nav>
+
+                <section class="footer-contact" aria-labelledby="footer-contact-heading">
+                    <h2 class="footer-heading" id="footer-contact-heading">Nous joindre</h2>
+                    <address>
+                        <ul>
+                            <li>
+                                <i class="fa-solid fa-location-dot" aria-hidden="true"></i>
+                                <span>945 Ch. de Chambly,<br>Longueuil, J4H 3M6</span>
+                            </li>
+                            <li>
+                                <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+                                <a href="mailto:office@clinique.ca">office@clinique.ca</a>
+                            </li>
+                            <li>
+                                <i class="fa-solid fa-calendar" aria-hidden="true"></i>
+                                <a href="mailto:rdv@clinique.ca">rdv@clinique.ca</a>
+                            </li>
+                        </ul>
+                    </address>
+                </section>
+
+                <section class="footer-social" aria-labelledby="footer-social-heading">
+                    <h2 class="footer-heading" id="footer-social-heading">Suivez-nous</h2>
+                    <div class="footer-social-links">
+                        <a href="https://www.facebook.com/" aria-label="Facebook"><i class="fab fa-facebook-f" aria-hidden="true"></i></a>
+                        <a href="https://www.youtube.com/" aria-label="YouTube"><i class="fa-brands fa-youtube" aria-hidden="true"></i></a>
+                        <a href="https://www.instagram.com/" aria-label="Instagram"><i class="fa-brands fa-instagram" aria-hidden="true"></i></a>
+                    </div>
+                </section>
+            </section>
+
+            <div class="site-footer-bottom">
+                <span>Copyright &copy; 2024 Clinique2000</span>
+                <a asp-area="" asp-controller="Home" asp-action="Privacy">Confidentialité</a>
             </div>
-            <div id="col-social">
-                <a href="https://www.facebook.com/"><i class="fab fa-facebook fa-2x "></i></a>
-                <a href="https://www.youtube.com/"><i class="fa-brands fa-youtube fa-2x"></i></a>
-                <a href="https://www.Instagram.com/"><i class="fa-brands fa-instagram fa-2x"></i></a>
-            </div>
-        </section>
-       
-        <section id="copyright">
-            <div class="copyright-content py-2">
-                Copyright &copy; 2024 Clinique2000 <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
-            </div>
-        </section>
+        </div>
     </footer>
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/inputmask/jquery.inputmask.js"></script>

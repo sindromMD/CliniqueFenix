@@ -64,6 +64,13 @@
             <td>
                 @Html.DisplayFor(modelItem => item.DateModification)
             </td>
+            <td>
+                <form asp-action="ResoumettreClinique" asp-route-id="@item.CliniqueID" method="post" class="d-inline">
+                    <button type="submit" class="btn btn-primary btn-sm" aria-label="Resoumettre l'application de @item.NomClinique">
+                        <i class="fa-solid fa-rotate-right"></i> Resoumettre
+                    </button>
+                </form>
+            </td>
         </tr>
     }
 }

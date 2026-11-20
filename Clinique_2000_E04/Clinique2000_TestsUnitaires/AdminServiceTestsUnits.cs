@@ -95,5 +95,19 @@ namespace Clinique2000_TestsUnitaires
             Assert.Equal(approbationVM.Param, model.Param);
             Assert.Equal(approbationCliniquesVM.Cliniques, model.ApprobationCliniquesVM.Cliniques);
         }
+
+        [Fact]
+        public async Task ResoumettreClinique_WhenCalled_ResubmitsClinicAndRedirectsToRejectedList()
+        {
+            const int clinicId = 42;
+            _servicesMock.Setup(s => s.admin.ResoumettreCliniqueParID(clinicId)).ReturnsAsync(1);
+
+            var result = await _adminController.ResoumettreClinique(clinicId);
+
+            var redirectToActionResult = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(_adminController.Approbation), redirectToActionResult.ActionName);
+            Assert.Equal("cliniquesrefusees", redirectToActionResult.RouteValues["id"]);
+            _servicesMock.Verify(s => s.admin.ResoumettreCliniqueParID(clinicId), Times.Once);
+        }
     }
 }

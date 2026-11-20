@@ -9,6 +9,7 @@ namespace Clinique2000_Services.IServices
         public Task<List<ApplicationUser>> ApprobationUtilisateurListe();
         public Task<int> ApprobationCliniqueParID(int id);
         public Task<int> RefuserCliniqueParID(int id);
+        public Task<int> ResoumettreCliniqueParID(int id);
         public Task<int> ApprobationUtilisateurParID(int id);
         public Task<int> RefuserUtilisateurParID(int id);
         public Task<List<Clinique>> ListeCliniquesRefusees();

@@ -121,6 +121,15 @@ namespace Clinique2000_MVC.Areas.Admin.Controllers
             return RedirectToAction("Approbation", new { id = "clinique" });
         }
 
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ResoumettreClinique(int id)
+        {
+            await _services.admin.ResoumettreCliniqueParID(id);
+
+            return RedirectToAction(nameof(Approbation), new { id = "cliniquesrefusees" });
+        }
+
         [HttpGet]
         public async Task<IActionResult> ApprobationUtilisateur(int id)
         {
