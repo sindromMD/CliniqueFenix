@@ -23,6 +23,7 @@ namespace Clinique2000_TestsUnitaires
 
             Assert.Equal(0, count);
             Assert.Equal(StatutConsultation.EnAttente, consultation.StatutConsultation);
+            Assert.True(consultation.PlageHoraire!.ListeAttente!.IsOuverte);
         }
 
         [Fact]
@@ -40,6 +41,27 @@ namespace Clinique2000_TestsUnitaires
             Assert.Equal(0, secondCount);
             Assert.Equal(StatutConsultation.Annulle, consultation.StatutConsultation);
             Assert.Equal(42, consultation.PatientID);
+            Assert.False(consultation.PlageHoraire!.ListeAttente!.IsOuverte);
+        }
+
+        [Fact]
+        public async Task AnnulerRendezVousNonUtilisesAsync_AfterClosing_ClosesListWithoutCancellingUnbookedSlots()
+        {
+            await using var context = CreateContext();
+            var consultation = CreateConsultation(1, StatutConsultation.DisponiblePourReservation, null);
+            await SeedAsync(context, new DateTime(2026, 11, 20), consultation);
+            var service = CreateService(context);
+
+            var count = await service.AnnulerRendezVousNonUtilisesAsync(
+                new DateTime(2026, 11, 20, 22, 0, 0, DateTimeKind.Utc));
+
+            Assert.Equal(0, count);
+            Assert.Equal(StatutConsultation.DisponiblePourReservation, consultation.StatutConsultation);
+            Assert.False(consultation.PlageHoraire!.ListeAttente!.IsOuverte);
+            var persistedListe = await context.ListeAttentes
+                .AsNoTracking()
+                .SingleAsync(liste => liste.ListeAttenteID == 1);
+            Assert.False(persistedListe.IsOuverte);
         }
 
         [Fact]
@@ -138,6 +160,7 @@ namespace Clinique2000_TestsUnitaires
                 HeureOuverture = TimeSpan.FromHours(8),
                 HeureFermeture = TimeSpan.FromHours(17),
                 NbMedecinsDispo = 1,
+                IsOuverte = true,
                 CliniqueID = clinique.CliniqueID,
                 Clinique = clinique
             };

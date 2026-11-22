@@ -41,6 +41,7 @@ namespace Clinique2000_Services.Services
                     .AddTrigger(trigger =>
                         trigger
                             .ForJob(annulerRendezVousJobKey)
+                            .StartNow()
                             .WithSimpleSchedule(schedule =>
                             schedule.WithIntervalInMinutes(5).RepeatForever()));
         }

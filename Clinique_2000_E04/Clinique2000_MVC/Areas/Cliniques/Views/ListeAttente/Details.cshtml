@@ -116,37 +116,64 @@
             {
                 var rendezVous = Model.MonRendezVousAujourdhui;
                 <section class="card rdv-card mb-4" aria-labelledby="rdv-card-title">
-                    <div class="card-header card-header-datatables h4 text-light d-flex align-items-center gap-2">
+                    <div class="card-header rdv-card__header d-flex align-items-center gap-2">
                         <i class="fa-solid fa-calendar-check" aria-hidden="true"></i>
-                        <h2 class="h4 mt-2 mb-2" id="rdv-card-title">Mon prochain rendez-vous</h2>
+                        <h2 class="h4 mb-0" id="rdv-card-title">Mon prochain rendez-vous</h2>
                     </div>
-                    <div class="card-body">
-                        <dl class="row g-3 p-3 mb-0">
-                            <dt class="col-sm-3 hr5"><i class="fa-solid fa-calendar-days me-2" aria-hidden="true"></i>Date</dt>
-                            <dd class="col-sm-9 p1">@rendezVous.HeureDateDebutPrevue.ToString("dd/MM/yyyy")</dd>
-                            <dt class="col-sm-3 hr5"><i class="fa-solid fa-clock me-2" aria-hidden="true"></i>Heure</dt>
-                            <dd class="col-sm-9 p1">@rendezVous.HeureDateDebutPrevue.ToString("HH:mm")</dd>
-                            <dt class="col-sm-3 hr5"><i class="fa-solid fa-location-dot me-2" aria-hidden="true"></i>Lieu</dt>
-                            <dd class="col-sm-9 p1">
-                                @Model.ListeAttente.Clinique.NomClinique —
-                                @Model.ListeAttente.Clinique.Adresse.Numero @Model.ListeAttente.Clinique.Adresse.Rue,
-                                @Model.ListeAttente.Clinique.Adresse.Ville @Model.ListeAttente.Clinique.Adresse.CodePostal
-                            </dd>
-                        </dl>
+                    <div class="card-body rdv-card__details">
+                        <div class="rdv-card__detail">
+                            <span class="rdv-card__icon" aria-hidden="true">
+                                <i class="fa-solid fa-calendar-days"></i>
+                            </span>
+                            <div>
+                                <div class="rdv-card__label">Date</div>
+                                <div class="rdv-card__value">@rendezVous.HeureDateDebutPrevue.ToString("dd/MM/yyyy")</div>
+                            </div>
+                        </div>
+                        <div class="rdv-card__detail">
+                            <span class="rdv-card__icon" aria-hidden="true">
+                                <i class="fa-solid fa-clock"></i>
+                            </span>
+                            <div>
+                                <div class="rdv-card__label">Heure</div>
+                                <div class="rdv-card__value">@rendezVous.HeureDateDebutPrevue.ToString("HH:mm")</div>
+                            </div>
+                        </div>
+                        <div class="rdv-card__detail">
+                            <span class="rdv-card__icon" aria-hidden="true">
+                                <i class="fa-solid fa-location-dot"></i>
+                            </span>
+                            <div>
+                                <div class="rdv-card__label">Lieu</div>
+                                <div class="rdv-card__value">@Model.ListeAttente.Clinique.NomClinique</div>
+                                <div class="rdv-card__address">
+                                    @Model.ListeAttente.Clinique.Adresse.Numero, @Model.ListeAttente.Clinique.Adresse.Rue,
+                                    @Model.ListeAttente.Clinique.Adresse.Ville @Model.ListeAttente.Clinique.Adresse.CodePostal
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
+                    <div class="card-footer rdv-card__footer">
                         @if (Model.PeutAnnulerMonRendezVous)
                         {
                             <button type="button"
-                                    class="btn btn-outline-danger rdv-card__cancel"
+                                    class="button-white-action rdv-card__cancel"
                                     data-bs-toggle="collapse"
                                     data-bs-target="#confirmationAnnulation"
                                     aria-expanded="false"
                                     aria-controls="confirmationAnnulation">
-                                Annuler le rendez-vous
+                                <i class="fa-solid fa-xmark" aria-hidden="true" style="spacing: 0.5rem;"></i>
+                                    Annuler le rendez-vous
                             </button>
-                            <div class="collapse mt-3" id="confirmationAnnulation">
-                                <div class="alert alert-light border mb-0">
-                                    <p class="mb-3">Annuler votre rendez-vous de @rendezVous.HeureDateDebutPrevue.ToString("HH:mm") ?</p>
+                            <div class="collapse" id="confirmationAnnulation">
+                                <div class="rdv-card__confirmation" role="alertdialog" aria-label="Confirmer l'annulation">
+                                    <div class="rdv-card__confirmation-title">
+                                        Annuler votre rendez-vous de @rendezVous.HeureDateDebutPrevue.ToString("HH:mm") ?
+                                    </div>
+                                    <p class="rdv-card__confirmation-text">
+                                        Votre place sera libérée et redeviendra disponible pour les autres patients.
+                                    </p>
                                     <div class="d-flex flex-wrap gap-2">
                                         <form asp-area="Cliniques"
                                               asp-controller="ListeAttente"
@@ -154,7 +181,7 @@
                                               method="post">
                                             <input type="hidden" name="consultationId" value="@rendezVous.ConsultationID" />
                                             <input type="hidden" name="listeAttenteId" value="@Model.ListeAttente.ListeAttenteID" />
-                                            <button type="submit" class="btn btn-danger rdv-card__confirm">Oui, annuler</button>
+                                            <button type="submit" class="button-red-action rdv-card__confirm">Oui, annuler</button>
                                         </form>
                                         <button type="button"
                                                 class="button-white-action"
@@ -169,14 +196,14 @@
                         }
                         else
                         {
-                            <p class="text-muted mt-3 mb-0">L'annulation n'est plus possible après l'heure du rendez-vous.</p>
+                            <p class="rdv-card__not-cancellable mb-0">L'annulation n'est plus possible après l'heure du rendez-vous.</p>
                         }
                     </div>
                 </section>
 
-                <div class="alert alert-light border" role="status">
-                    <i class="fa-solid fa-circle-info text-primary me-2" aria-hidden="true"></i>
-                    Vous avez déjà un rendez-vous aujourd'hui dans cette clinique. Les autres créneaux ne sont donc pas affichés.
+                <div class="rdv-card__note" role="status">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <span>Vous avez déjà un rendez-vous aujourd'hui dans cette clinique. Les autres créneaux ne sont donc pas affichés.</span>
                 </div>
             }
             else

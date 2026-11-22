@@ -2748,8 +2748,83 @@ html {
   min-height: 48px;
 }
 
+.rdv-card {
+  max-width: 640px;
+  margin-inline: auto;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(13, 110, 253, 0.18);
+}
+
 .rdv-card .card-header {
-  min-height: 56px;
+  min-height: 64px;
+}
+
+.rdv-card__header {
+  padding: 20px 28px;
+  background: #0d6efd;
+  color: #fff;
+}
+
+.rdv-card__details {
+  padding: 4px 28px 8px;
+}
+
+.rdv-card__detail {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 20px 0;
+}
+
+.rdv-card__detail + .rdv-card__detail {
+  border-top: 1px solid #e9ecef;
+}
+
+.rdv-card__icon {
+  display: flex;
+  flex: 0 0 48px;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #e7f1ff;
+  color: #0a58ca;
+  font-size: 20px;
+}
+
+.rdv-card__label {
+  color: #495057;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rdv-card__value {
+  margin-top: 2px;
+  color: #052c65;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.rdv-card__address {
+  margin-top: 2px;
+  color: #495057;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.rdv-card__footer {
+  padding: 20px 28px 24px;
+  border-top: 1px solid #e9ecef;
+  background: #f8f9fa;
+}
+
+.rdv-card__cancel {
+  width: 100%;
 }
 
 .rdv-card__cancel,
@@ -2757,13 +2832,67 @@ html {
   min-height: 48px;
 }
 
-.rdv-card__cancel {
-  width: 100%;
+.rdv-card__confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.rdv-card__confirmation-title {
+  color: #052c65;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.rdv-card__confirmation-text {
+  margin: 0;
+  color: #495057;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.rdv-card__note {
+  display: flex;
+  max-width: 640px;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 20px auto 0;
+  padding: 14px 18px;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  background: #f8f9fa;
+  color: #052c65;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.rdv-card__note i {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #0a58ca;
+}
+
+.rdv-card__not-cancellable {
+  color: #495057;
 }
 
 @media (max-width: 575.98px) {
-  .rdv-card .card-body > dl {
-    padding: 0 !important;
+  .rdv-card__header,
+  .rdv-card__details,
+  .rdv-card__footer {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  .rdv-card__value {
+    font-size: 21px;
   }
 
   .rdv-card__confirm {

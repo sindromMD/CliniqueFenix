@@ -441,6 +441,7 @@ namespace Clinique2000_Services.Services
 
             var maintenantParFuseau = new Dictionary<int, DateTime>();
             var nombreAnnulees = 0;
+            var donneesModifiees = false;
 
             foreach (var listeAttente in listesAttente)
             {
@@ -463,6 +464,12 @@ namespace Clinique2000_Services.Services
                     continue;
                 }
 
+                if (listeAttente.IsOuverte)
+                {
+                    listeAttente.IsOuverte = false;
+                    donneesModifiees = true;
+                }
+
                 foreach (var plage in listeAttente.PlagesHoraires ?? new List<PlageHoraire>())
                 {
                     foreach (var consultation in plage.Consultations ?? new List<Consultation>())
@@ -477,11 +484,12 @@ namespace Clinique2000_Services.Services
 
                         consultation.StatutConsultation = StatutConsultation.Annulle;
                         nombreAnnulees++;
+                        donneesModifiees = true;
                     }
                 }
             }
 
-            if (nombreAnnulees > 0)
+            if (donneesModifiees)
             {
                 await _context.SaveChangesAsync();
             }
