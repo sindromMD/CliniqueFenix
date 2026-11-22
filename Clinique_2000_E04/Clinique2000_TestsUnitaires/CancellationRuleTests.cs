@@ -51,6 +51,36 @@ namespace Clinique2000_TestsUnitaires
             Assert.True(consultation.PlageHoraire!.ListeAttente!.IsOuverte);
         }
 
+        [Fact]
+        public async Task FermerOuLaisserOuverteListeAttente_LeavesListOpenWhenOtherSlotsAreAvailable()
+        {
+            await using var context = CreateContext();
+            var consultation = await SeedAsync(context);
+            var liste = consultation.PlageHoraire!.ListeAttente!;
+            var plage = new PlageHoraire
+            {
+                PlageHoraireID = 2,
+                HeureDebut = new DateTime(2026, 11, 20, 10, 30, 0),
+                HeureFin = new DateTime(2026, 11, 20, 11, 0, 0),
+                ListeAttenteID = liste.ListeAttenteID,
+                ListeAttente = liste
+            };
+            context.PlagesHoraires.Add(plage);
+            context.Consultations.Add(new Consultation
+            {
+                ConsultationID = 2,
+                StatutConsultation = StatutConsultation.DisponiblePourReservation,
+                PlageHoraireID = plage.PlageHoraireID,
+                PlageHoraire = plage
+            });
+            await context.SaveChangesAsync();
+
+            var service = CreateService(context, new DateTime(2026, 11, 20, 14, 0, 0, DateTimeKind.Utc));
+            await service.FermerOuLaisserOuverteListeAttente(liste.ListeAttenteID);
+
+            Assert.True(liste.IsOuverte);
+        }
+
         private static CliniqueDbContext CreateContext()
         {
             var options = new DbContextOptionsBuilder<CliniqueDbContext>()

@@ -112,15 +112,14 @@ namespace Clinique2000_Services.Services
         {
 
             ListeAttente listeAttente = await _context.ListeAttentes.FindAsync(listeattenteid);
+            var plagesHoraires = await _context.PlagesHoraires
+                .Where(plage => plage.ListeAttenteID == listeattenteid)
+                .Include(plage => plage.Consultations)
+                .ToListAsync();
 
-            if (listeAttente.Consultations.Any(x => x.StatutConsultation == StatutConsultation.DisponiblePourReservation))
-            {
-                listeAttente.IsOuverte = true;
-            }
-            else
-            {
-                listeAttente.IsOuverte = false;
-            }
+            listeAttente.IsOuverte = plagesHoraires
+                .SelectMany(plage => plage.Consultations)
+                .Any(consultation => consultation.StatutConsultation == StatutConsultation.DisponiblePourReservation);
 
         }
 
