@@ -5,8 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
 using Clinique2000_Utility.Enum;
 using Clinique2000_Utility.Constants;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
 using Clinique2000_MVC.Hubs;
 using Clinique2000_Utility;
@@ -20,12 +18,15 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
 
         public IClinique2000Services _services { get; set; }
         private readonly IHubContext<MiseAJourListeAttentePatientHub> _hubContext;
+        private readonly IClock _clock;
 
         public ListeAttenteController(IClinique2000Services service,
-            IHubContext<MiseAJourListeAttentePatientHub> hubContext)
+            IHubContext<MiseAJourListeAttentePatientHub> hubContext,
+            IClock? clock = null)
         {
             _services = service;
             _hubContext = hubContext;
+            _clock = clock ?? new SystemClock();
         }
 
 
@@ -38,42 +39,165 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
         public async Task<ActionResult> Index()
         {
             var user = await _services.patient.GetUserAuthAsync();
-            var employee= await _services.employesClinique.GetEmployeUserID(user.Email, user.Id);
-
-            //var employee = await _services.employesClinique.FindOneAsync(x => x.UserID == user.Id && x.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste);
-
-            //AFFICHE LES LISTES DATTENTE DE LA CLINIQUE DANS Laquelle la receptionniste travaille
-            if (employee!=null && employee.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste
-                /* await _services.employesClinique.EmployeCliniqueEstReceptionniste(employee) == true*/)
+            if (user == null)
             {
-                List<ListeAttente> listListAttente = await _services.listeAttente.ObtenirToutAsync();
-
-                listListAttente = listListAttente.Where(x => x.DateEffectivite >= DateTime.Now && x.CliniqueID== employee.CliniqueID)
-                    .OrderBy(x => x.DateEffectivite)
-                    .ToList();
-
-                return View(listListAttente);
-
+                return Challenge();
             }
-            else
-            {
 
-                //affiche tout les listes dèattentes de la bd
-                IList<ListeAttente> listListAttente = await _services.listeAttente.ObtenirToutAsync();
-                listListAttente = listListAttente.Where(x => x.DateEffectivite >= DateTime.Now)
-                .OrderBy(x => x.DateEffectivite)
+            var employes = await _services.employesClinique.ObtenirToutAsync();
+            var employesUtilisateur = employes
+                .Where(employe =>
+                    (employe.UserID == user.Id ||
+                     string.Equals(employe.EmployeCliniqueCourriel, user.Email, StringComparison.OrdinalIgnoreCase)) &&
+                    (employe.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste ||
+                     employe.EmployeCliniquePosition == EmployeCliniquePosition.AdminClinique))
                 .ToList();
-                if(User.IsInRole(AppConstants.SuperAdminRole))
-                {
-                    return View(listListAttente);
-                }
-                //Affiche les listes d'attentes de la clinique du createur
-                if (User.IsInRole(AppConstants.AdminCliniqueRole))
-                {
-                    listListAttente = listListAttente.Where(l => l.Clinique.CreateurID == user.Id).ToList();  
-                }
-                return View(listListAttente);
+            var toutesLesListes = await _services.listeAttente.ObtenirToutAsync();
+            var listesAutorisees = toutesLesListes
+                .Where(liste =>
+                    User.IsInRole(AppConstants.SuperAdminRole) ||
+                    (User.IsInRole(AppConstants.AdminCliniqueRole) &&
+                     liste.Clinique?.CreateurID == user.Id) ||
+                    employesUtilisateur.Any(employe => employe.CliniqueID == liste.CliniqueID))
+                .Where(liste => liste.DateEffectivite.Date >= DateTime.Today)
+                .OrderBy(liste => liste.DateEffectivite)
+                .ThenBy(liste => liste.Clinique?.NomClinique)
+                .ToList();
+
+            if (listesAutorisees.Count == 0 &&
+                !User.IsInRole(AppConstants.SuperAdminRole) &&
+                !User.IsInRole(AppConstants.AdminCliniqueRole) &&
+                employesUtilisateur.Count == 0)
+            {
+                return Forbid();
             }
+
+            var rolesEmploye = employesUtilisateur
+                .Select(employe => FormaterRoleEmploye(employe.EmployeCliniquePosition));
+            var roles = User.Claims
+                .Where(claim => claim.Type == ClaimTypes.Role || claim.Type == "role")
+                .Select(claim => claim.Value)
+                .Concat(rolesEmploye)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var nomEmploye = employesUtilisateur
+                .Select(employe => $"{employe.EmployeCliniquePrenom} {employe.EmployeCliniqueNom}".Trim())
+                .FirstOrDefault(nom => !string.IsNullOrWhiteSpace(nom));
+
+            var model = new ListeAttenteDashboardVM
+            {
+                NomUtilisateur = User.FindFirstValue(ClaimTypes.Name) ??
+                    nomEmploye ??
+                    user.UserName ??
+                    user.Email ??
+                    string.Empty,
+                Courriel = user.Email ?? User.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
+                Roles = roles,
+                ListesAttente = listesAutorisees.Select(CreerCarteDashboard).ToList()
+            };
+
+            return View(model);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> BasculerDisponibilite(int id)
+        {
+            var user = await _services.patient.GetUserAuthAsync();
+            if (user == null)
+            {
+                return Challenge();
+            }
+
+            var liste = await _services.listeAttente.ObtenirParIdAsync(id);
+            if (liste == null)
+            {
+                return NotFound();
+            }
+
+            var employes = await _services.employesClinique.ObtenirToutAsync();
+            var employeAutorise = employes.Any(employe =>
+                employe.CliniqueID == liste.CliniqueID &&
+                (employe.UserID == user.Id ||
+                 string.Equals(employe.EmployeCliniqueCourriel, user.Email, StringComparison.OrdinalIgnoreCase)) &&
+                (employe.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste ||
+                 employe.EmployeCliniquePosition == EmployeCliniquePosition.AdminClinique));
+            var estProprietaireAdmin = User.IsInRole(AppConstants.AdminCliniqueRole) &&
+                liste.Clinique?.CreateurID == user.Id;
+
+            if (!User.IsInRole(AppConstants.SuperAdminRole) && !employeAutorise && !estProprietaireAdmin)
+            {
+                return Forbid();
+            }
+
+            var nouvelleDisponibilite = !liste.IsOuverte;
+            if (nouvelleDisponibilite)
+            {
+                var adresseClinique = liste.Clinique?.Adresse;
+                var localisation = adresseClinique == null
+                    ? null
+                    : await _services.adresse.GetLocationByPostalCodeAsync(adresseClinique.CodePostal);
+                if (localisation == null)
+                {
+                    TempData[AppConstants.Error] = "Le fuseau horaire de la clinique est introuvable.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                var maintenantClinique = CliniqueTimeZone.ConvertUtcToLocal(_clock.UtcNow, localisation.TimeZone);
+                var fermetureClinique = liste.DateEffectivite.Date.Add(liste.HeureFermeture);
+                if (liste.DateEffectivite.Date < maintenantClinique.Date || maintenantClinique >= fermetureClinique)
+                {
+                    TempData[AppConstants.Warning] = "Cette liste ne peut plus être ouverte après sa date ou son heure de fermeture.";
+                    return RedirectToAction(nameof(Index));
+                }
+            }
+
+            liste.IsOuverte = nouvelleDisponibilite;
+            await _services.listeAttente.EditerAsync(liste);
+            await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
+
+            TempData[AppConstants.Success] = nouvelleDisponibilite
+                ? "La liste est disponible pour réservation."
+                : "La liste n'est plus disponible pour réservation.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        private static string FormaterRoleEmploye(EmployeCliniquePosition position)
+        {
+            return position switch
+            {
+                EmployeCliniquePosition.Receptionniste => "Réceptionniste",
+                EmployeCliniquePosition.AdminClinique => "Administrateur de clinique",
+                _ => position.ToString()
+            };
+        }
+
+        private static ListeAttenteDashboardItemVM CreerCarteDashboard(ListeAttente liste)
+        {
+            var consultations = (liste.PlagesHoraires ?? new List<PlageHoraire>())
+                .Where(plage => plage.Consultations != null)
+                .SelectMany(plage => plage.Consultations)
+                .ToList();
+
+            return new ListeAttenteDashboardItemVM
+            {
+                ListeAttenteID = liste.ListeAttenteID,
+                NomClinique = liste.Clinique?.NomClinique ?? "Clinique",
+                DateEffectivite = liste.DateEffectivite,
+                HeureOuverture = liste.HeureOuverture,
+                HeureFermeture = liste.HeureFermeture,
+                IsOuverte = liste.IsOuverte,
+                NbMedecinsDispo = liste.NbMedecinsDispo,
+                RendezVousPlanifies = consultations.Count(consultation =>
+                    consultation.PatientID.HasValue &&
+                    (consultation.StatutConsultation == StatutConsultation.EnAttente ||
+                     consultation.StatutConsultation == StatutConsultation.EnCours ||
+                     consultation.StatutConsultation == StatutConsultation.EnRetard)),
+                RendezVousAnnules = consultations.Count(consultation =>
+                    consultation.StatutConsultation == StatutConsultation.Annulle),
+                ConsultationsTerminees = consultations.Count(consultation =>
+                    consultation.StatutConsultation == StatutConsultation.Termine)
+            };
         }
 
         /// <summary>
