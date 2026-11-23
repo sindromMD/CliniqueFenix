@@ -2,6 +2,7 @@ using Clinique2000_Core.Models;
 using Clinique2000_Core.ViewModels;
 using Clinique2000_Services.IServices;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Identity;
 using System.ComponentModel.DataAnnotations;
 using Clinique2000_Utility.Enum;
@@ -430,17 +431,52 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
         [HttpGet]
         public async Task<IActionResult> Create()
         {
-            var user = await _services.patient.GetUserAuthAsync();
-            var userid = await _services.employesClinique.GetEmployeUserID(user.Email, user.Id);
-            var employee = await _services.employesClinique.FindOneAsync(x => x.UserID == user.Id && x.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste);
-            if (employee != null)
+            var acces = await EstPersonnelAutoriseAsync();
+            if (!acces.EstAuthentifie)
             {
-                ListeAttente listeAttente = await _services.listeAttente.GenererListeAttenteParDefaut(employee);
-
-                return View(listeAttente);
+                return Challenge();
+            }
+            if (!acces.EstAutorise)
+            {
+                return Forbid();
             }
 
-            return View();
+            var listeAttente = new ListeAttente { DateEffectivite = DateTime.Today };
+            if (acces.Cliniques.Count == 1)
+            {
+                listeAttente = await _services.listeAttente.ObtenirValeursParDefautCreationAsync(
+                    acces.Cliniques[0].CliniqueID);
+            }
+
+            ViewData["ChargerValeursInitiales"] = true;
+            ChargerCliniquesPourCreation(acces.Cliniques, listeAttente.CliniqueID);
+            return View(listeAttente);
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> ParametresCreation(int cliniqueId)
+        {
+            var acces = await EstPersonnelAutoriseAsync(cliniqueId);
+            if (!acces.EstAuthentifie)
+            {
+                return Challenge();
+            }
+            if (!acces.EstAutorise)
+            {
+                return Forbid();
+            }
+
+            var listeAttente = await _services.listeAttente.ObtenirValeursParDefautCreationAsync(cliniqueId);
+            return Json(new
+            {
+                cliniqueId = listeAttente.CliniqueID,
+                dateEffectivite = listeAttente.DateEffectivite.ToString("yyyy-MM-dd"),
+                heureOuverture = listeAttente.HeureOuverture.ToString(@"hh\:mm"),
+                heureFermeture = listeAttente.HeureFermeture.ToString(@"hh\:mm"),
+                nbMedecinsDispo = listeAttente.NbMedecinsDispo,
+                heurePauseDebut = listeAttente.HeurePauseDebut.ToString(@"hh\:mm"),
+                heurePauseFin = listeAttente.HeurePauseFin.ToString(@"hh\:mm")
+            });
         }
 
         // POST: ListeAttenteController/Create
@@ -457,36 +493,60 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
         {
             try
             {
+                var acces = await EstPersonnelAutoriseAsync(
+                    listeAttente.CliniqueID > 0 ? listeAttente.CliniqueID : null);
+                if (!acces.EstAuthentifie)
+                {
+                    return Challenge();
+                }
+                if (!acces.EstAutorise)
+                {
+                    return Forbid();
+                }
+                if (listeAttente.CliniqueID <= 0)
+                {
+                    ModelState.AddModelError(nameof(listeAttente.CliniqueID), "Veuillez sélectionner une clinique.");
+                }
+
                 if (ModelState.IsValid)
                 {
-                    var user = await _services.patient.GetUserAuthAsync();
-                    var userid = await _services.employesClinique.GetEmployeUserID(user.Email, user.Id);
-                    var employee = await _services.employesClinique.FindOneAsync(x => x.UserID == user.Id && x.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste);
-
-                    if (employee != null)
-                    {
-                        listeAttente.ReservationsActivees = listeAttente.IsOuverte;
-                        _services.listeAttente.AssignerCliniqueIDaListeAttente(listeAttente, employee.CliniqueID);
-                        await _services.listeAttente.CreerListeAttenteAsync(listeAttente);
-                        await _services.listeAttente.GenererPlagesHorairesAsync(listeAttente.ListeAttenteID);
-                        await NotifierDashboardCliniqueAsync(listeAttente.CliniqueID);
-                        TempData[AppConstants.Success] = "Vous avez créé avec succès la liste d'attente";
-                        listeAttente = null;
-                        RedirectToAction("Index");
-                    }
-                    else
-                    {
-                        TempData[AppConstants.Error] = "Vous n'êtes pas un employé clinique valide";
-                    }
+                    listeAttente.ReservationsActivees = listeAttente.IsOuverte;
+                    await _services.listeAttente.CreerListeAttenteAsync(listeAttente);
+                    await _services.listeAttente.GenererPlagesHorairesAsync(listeAttente.ListeAttenteID);
+                    await NotifierDashboardCliniqueAsync(listeAttente.CliniqueID);
+                    TempData[AppConstants.Success] = "Vous avez créé avec succès la liste d'attente";
+                    return RedirectToAction("Index");
                 }
             }
             catch (Exception ex)
             {
                 ModelState.AddModelError("", ex.Message);
                 TempData[AppConstants.Error] = $"Erreur : {ex.Message}";
-                return View("create", listeAttente);
             }
-            return RedirectToAction("Index");
+
+            var accesPourVue = await EstPersonnelAutoriseAsync();
+            if (!accesPourVue.EstAuthentifie)
+            {
+                return Challenge();
+            }
+            if (!accesPourVue.EstAutorise)
+            {
+                return Forbid();
+            }
+            ViewData["ChargerValeursInitiales"] = false;
+            ChargerCliniquesPourCreation(accesPourVue.Cliniques, listeAttente.CliniqueID);
+            return View("Create", listeAttente);
+        }
+
+        private void ChargerCliniquesPourCreation(
+            IEnumerable<ListeAttenteDashboardCliniqueVM> cliniques,
+            int cliniqueSelectionnee)
+        {
+            ViewData["Cliniques"] = new SelectList(
+                cliniques,
+                nameof(ListeAttenteDashboardCliniqueVM.CliniqueID),
+                nameof(ListeAttenteDashboardCliniqueVM.NomClinique),
+                cliniqueSelectionnee > 0 ? cliniqueSelectionnee : null);
         }
 
         // GET: ListeAttenteController/Edit/5

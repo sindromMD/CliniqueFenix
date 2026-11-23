@@ -484,27 +484,36 @@ namespace Clinique2000_Services.Services
 
         }
 
-        public async Task<DateTime> ObtenirDerniereListeAttenteParClinique(int cliniqueID)
+        public async Task<ListeAttente> ObtenirValeursParDefautCreationAsync(int cliniqueID)
         {
-            DateTime date = await _context.ListeAttentes.Where(la => la.CliniqueID == cliniqueID).MaxAsync(la => la.DateEffectivite);
-            
-            return date.AddDays(1);
-        }
-
-        public async Task<ListeAttente> GenererListeAttenteParDefaut(EmployesClinique ec)
-        {
-            ListeAttente listeAttente = new ListeAttente
+            var clinique = await _context.Cliniques
+                .Include(candidate => candidate.EmployesCliniques)
+                .FirstOrDefaultAsync(candidate => candidate.CliniqueID == cliniqueID);
+            if (clinique == null)
             {
-                DateEffectivite = await ObtenirDerniereListeAttenteParClinique(ec.CliniqueID),
-                HeureOuverture = (TimeSpan)ec.Clinique.HeureOuverture,
-                HeureFermeture = (TimeSpan)ec.Clinique.HeureFermeture,
-                NbMedecinsDispo = ec.Clinique.EmployesCliniques.Count(x => x.EmployeCliniquePosition == EmployeCliniquePosition.Medecin),
-                CliniqueID = ec.CliniqueID,
-                HeurePauseDebut = (TimeSpan)ec.Clinique.HeurePauseDebut,
-                HeurePauseFin = (TimeSpan)ec.Clinique.HeurePauseFin
-            };
+                throw new ValidationException("La clinique sélectionnée est introuvable.");
+            }
 
-            return listeAttente;
+            var derniereDate = await _context.ListeAttentes
+                .Where(liste => liste.CliniqueID == cliniqueID)
+                .Select(liste => (DateTime?)liste.DateEffectivite)
+                .MaxAsync();
+            var dateMinimale = DateTime.Today;
+            var dateEffectivite = !derniereDate.HasValue || derniereDate.Value.Date < dateMinimale
+                ? dateMinimale
+                : derniereDate.Value.Date.AddDays(1);
+
+            return new ListeAttente
+            {
+                DateEffectivite = dateEffectivite,
+                HeureOuverture = clinique.HeureOuverture ?? TimeSpan.Zero,
+                HeureFermeture = clinique.HeureFermeture ?? TimeSpan.Zero,
+                NbMedecinsDispo = clinique.EmployesCliniques.Count(employee =>
+                    employee.EmployeCliniquePosition == EmployeCliniquePosition.Medecin),
+                CliniqueID = clinique.CliniqueID,
+                HeurePauseDebut = clinique.HeurePauseDebut ?? TimeSpan.Zero,
+                HeurePauseFin = clinique.HeurePauseFin ?? TimeSpan.Zero
+            };
         }
 
         public async Task RetirerPausesListeAttente(ListeAttente listeAttente)

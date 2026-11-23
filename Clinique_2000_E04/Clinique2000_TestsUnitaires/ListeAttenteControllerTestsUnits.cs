@@ -121,6 +121,45 @@ namespace Clinique2000_TestsUnitaires
         }
 
         [Fact]
+        public async Task Create_Get_ChargeLesParametresDeLaCliniqueAutoriseeUnique()
+        {
+            var clinic = new ListeAttenteDashboardCliniqueVM
+            {
+                CliniqueID = 42,
+                NomClinique = "Clinique B",
+                FuseauHoraire = 5
+            };
+            var controller = CreerControleurIndex(
+                new List<ListeAttenteDashboardCliniqueVM> { clinic },
+                new List<ListeAttenteDashboardItemVM>(),
+                new ApplicationUser { Id = "staff-1", Email = "staff@example.com", EmailConfirmed = true },
+                new ClaimsPrincipal(new ClaimsIdentity(new[] {
+                    new Claim(ClaimTypes.Role, "Réceptionniste")
+                }, "Test")));
+            var defaults = new ListeAttente
+            {
+                CliniqueID = clinic.CliniqueID,
+                DateEffectivite = DateTime.Today.AddDays(1),
+                HeureOuverture = TimeSpan.FromHours(8),
+                HeureFermeture = TimeSpan.FromHours(17),
+                NbMedecinsDispo = 3,
+                HeurePauseDebut = TimeSpan.FromHours(12),
+                HeurePauseFin = TimeSpan.FromHours(13)
+            };
+            Mock.Get(controller._services).Setup(service =>
+                    service.listeAttente.ObtenirValeursParDefautCreationAsync(clinic.CliniqueID))
+                .ReturnsAsync(defaults);
+
+            var result = await controller.Create();
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<ListeAttente>(view.Model);
+            Assert.Equal(clinic.CliniqueID, model.CliniqueID);
+            Assert.Equal(3, model.NbMedecinsDispo);
+            Assert.True((bool)view.ViewData["ChargerValeursInitiales"]);
+        }
+
+        [Fact]
         public async Task Index_RefuseUnUtilisateurSansCliniqueAutorisee()
         {
             var user = new ApplicationUser { Id = "patient", Email = "patient@example.com" };
@@ -534,6 +573,24 @@ namespace Clinique2000_TestsUnitaires
 
             // Arrange
             var mockService = new Mock<IClinique2000Services>();
+            var user = new ApplicationUser { Id = "staff-1", Email = "staff@example.com", EmailConfirmed = true };
+            var authorizedClinics = new List<ListeAttenteDashboardCliniqueVM>
+            {
+                new() { CliniqueID = 42, NomClinique = "Clinique B", FuseauHoraire = 5 }
+            };
+            mockService.Setup(service => service.patient.GetUserAuthAsync()).ReturnsAsync(user);
+            mockService.Setup(service => service.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ReturnsAsync(authorizedClinics);
+            mockService.Setup(service => service.listeAttente.ObtenirValeursParDefautCreationAsync(42))
+                .ReturnsAsync(new ListeAttente
+                {
+                    CliniqueID = 42,
+                    DateEffectivite = DateTime.Today.AddDays(1),
+                    HeureOuverture = TimeSpan.FromHours(8),
+                    HeureFermeture = TimeSpan.FromHours(17),
+                    NbMedecinsDispo = 3
+                });
             var mockHubClients = new Mock<IHubClients>();
             var mockClients = new Mock<IClientProxy>();
             mockHubClients.Setup(x => x.All).Returns(mockClients.Object);
@@ -543,12 +600,22 @@ namespace Clinique2000_TestsUnitaires
 
             var controller = new ListeAttenteController(mockService.Object, mockHubContext.Object);
             ListeAttente listeAttente1 = new ListeAttente { ListeAttenteID = 1, };
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    {
+                        new Claim(ClaimTypes.Role, "Réceptionniste")
+                    }, "Test"))
+                }
+            };
             // Act
-            var result = controller.Create();
+            var result = await controller.Create();
 
             // Assert
             var viewResult = Assert.IsType<ViewResult>(result);
-            Assert.Null(viewResult.Model); // Confirme que la vue est retourn�e sans mod�le
+            Assert.Equal(42, Assert.IsType<ListeAttente>(viewResult.Model).CliniqueID);
         }
 
 
@@ -563,9 +630,25 @@ namespace Clinique2000_TestsUnitaires
         {
             // Arrange
             var mockService = new Mock<IClinique2000Services>();
+            var user = new ApplicationUser { Id = "staff-1", Email = "staff@example.com", EmailConfirmed = true };
+            mockService.Setup(service => service.patient.GetUserAuthAsync()).ReturnsAsync(user);
+            mockService.Setup(service => service.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ReturnsAsync(new List<ListeAttenteDashboardCliniqueVM>
+                {
+                    new() { CliniqueID = 42, NomClinique = "Clinique B", FuseauHoraire = 5 }
+                });
+            mockService.Setup(service => service.listeAttente.CreerListeAttenteAsync(It.IsAny<ListeAttente>()))
+                .ReturnsAsync((ListeAttente created) => created);
+            mockService.Setup(service => service.listeAttente.GenererPlagesHorairesAsync(It.IsAny<int>()))
+                .Returns(Task.CompletedTask);
             var mockHubClients = new Mock<IHubClients>();
             var mockClients = new Mock<IClientProxy>();
             mockHubClients.Setup(x => x.All).Returns(mockClients.Object);
+            mockHubClients.Setup(x => x.Group("clinique-42")).Returns(mockClients.Object);
+            mockClients.Setup(client => client.SendCoreAsync(
+                    It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
 
             var mockHubContext = new Mock<Microsoft.AspNetCore.SignalR.IHubContext<MiseAJourListeAttentePatientHub>>();
             mockHubContext.Setup(x => x.Clients).Returns(mockHubClients.Object);
@@ -577,20 +660,30 @@ namespace Clinique2000_TestsUnitaires
             tempDataMock.SetupGet(t => t[It.IsAny<string>()]).Returns("Valeur de Mock");
             controller.TempData = tempDataMock.Object;
 
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    {
+                        new Claim(ClaimTypes.Role, "Réceptionniste")
+                    }, "Test"))
+                }
+            };
+
             var validListeAttente = new ListeAttente
             {
                 ListeAttenteID = 1,
                 IsOuverte = true,
-                DateEffectivite = DateTime.Now,
+                DateEffectivite = DateTime.Today.AddDays(1),
                 HeureOuverture = new TimeSpan(9, 0, 0),
                 HeureFermeture = new TimeSpan(17, 0, 0),
                 NbMedecinsDispo = 5,
                 //DureeConsultationMinutes = 30,
-                CliniqueID = 1,
+                CliniqueID = 42,
             };
 
             // Configurez le service pour retourner un r�sultat de r�ussite (peut �tre simul�)
-            mockService.Setup(s => s.listeAttente.CreerAsync(It.IsAny<ListeAttente>()));
 
 
             controller.ModelState.Clear();
@@ -599,8 +692,10 @@ namespace Clinique2000_TestsUnitaires
             var result = await controller.Create(validListeAttente);
 
             // Assert
-            var redirectToActionResult = Assert.IsType<ViewResult>(result);
-            Assert.Equal("create", redirectToActionResult.ViewName);
+            var redirectToActionResult = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal("Index", redirectToActionResult.ActionName);
+            mockService.Verify(service => service.listeAttente.CreerListeAttenteAsync(
+                It.Is<ListeAttente>(item => item.CliniqueID == 42 && item.ReservationsActivees)), Times.Once);
         }
 
 

@@ -122,6 +122,54 @@ namespace Clinique2000_TestsUnitaires
             Assert.Equal(hasAvailableSlot, list.IsOuverte);
         }
 
+        [Fact]
+        public async Task ObtenirValeursParDefautCreationAsync_UsesSelectedClinicSettingsAndNextDate()
+        {
+            await using var context = CreateContext();
+            var clinic = CreateClinic(1, "Clinique A", "owner-1");
+            clinic.HeureOuverture = TimeSpan.FromHours(8);
+            clinic.HeureFermeture = TimeSpan.FromHours(17);
+            clinic.HeurePauseDebut = TimeSpan.FromHours(12);
+            clinic.HeurePauseFin = TimeSpan.FromHours(13);
+            clinic.EmployesCliniques = new List<EmployesClinique>
+            {
+                new()
+                {
+                    EmployeCliniquePosition = EmployeCliniquePosition.Medecin,
+                    EmployeCliniqueCourriel = "medecin1@example.com",
+                    EmployeCliniquePrenom = "Alex",
+                    EmployeCliniqueNom = "Roy"
+                },
+                new()
+                {
+                    EmployeCliniquePosition = EmployeCliniquePosition.Medecin,
+                    EmployeCliniqueCourriel = "medecin2@example.com",
+                    EmployeCliniquePrenom = "Sam",
+                    EmployeCliniqueNom = "Lee"
+                },
+                new()
+                {
+                    EmployeCliniquePosition = EmployeCliniquePosition.Receptionniste,
+                    EmployeCliniqueCourriel = "reception@example.com",
+                    EmployeCliniquePrenom = "Marie",
+                    EmployeCliniqueNom = "Roy"
+                }
+            };
+            context.Cliniques.Add(clinic);
+            context.ListeAttentes.Add(CreateList(1, clinic, DateTime.Today.AddDays(2), 0));
+            await context.SaveChangesAsync();
+
+            var defaults = await CreateService(context).ObtenirValeursParDefautCreationAsync(clinic.CliniqueID);
+
+            Assert.Equal(clinic.CliniqueID, defaults.CliniqueID);
+            Assert.Equal(DateTime.Today.AddDays(3), defaults.DateEffectivite);
+            Assert.Equal(clinic.HeureOuverture, defaults.HeureOuverture);
+            Assert.Equal(clinic.HeureFermeture, defaults.HeureFermeture);
+            Assert.Equal(2, defaults.NbMedecinsDispo);
+            Assert.Equal(clinic.HeurePauseDebut, defaults.HeurePauseDebut);
+            Assert.Equal(clinic.HeurePauseFin, defaults.HeurePauseFin);
+        }
+
         private static CliniqueDbContext CreateContext()
         {
             var options = new DbContextOptionsBuilder<CliniqueDbContext>()

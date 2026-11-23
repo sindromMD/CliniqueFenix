@@ -13,6 +13,7 @@ namespace Clinique2000_Services.IServices
     {
         Task<ListeAttente> CreerListeAttenteAsync(ListeAttente listeAttente);
         Task<ListeAttente> ModifierListeAttenteAsync(ListeAttente listeAttente);
+        Task<ListeAttente> ObtenirValeursParDefautCreationAsync(int cliniqueID);
         Task<bool> ContientCreneauxDisponiblesAsync(int listeAttenteID);
         bool PeutSupprimmer(ListeAttente listeAttente);
         Task SupprimmerListeAttente(ListeAttente listeAttente);
@@ -26,8 +27,6 @@ namespace Clinique2000_Services.IServices
         Task<ListeAttenteVM> GetListeAttenteOrdonnee(int listeAttenteID);
         Task<ListeAttenteVM> GetListeSalleAttenteOrdonnee(int listeAttenteID);
         void AssignerCliniqueIDaListeAttente(ListeAttente listeAttente, int cliniqueID);
-        Task<DateTime> ObtenirDerniereListeAttenteParClinique(int cliniqueID);
-        Task<ListeAttente> GenererListeAttenteParDefaut(EmployesClinique ec);
         Task<int> ObtenirIDListeAttente(int cliniqueID, DateTime dateEffectivite);
         Task<List<ListeAttenteDashboardCliniqueVM>> ObtenirCliniquesAutoriseesDashboardAsync(
             string userId,
