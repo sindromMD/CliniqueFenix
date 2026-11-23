@@ -1,154 +1,177 @@
 @model Clinique2000_Core.ViewModels.ListeAttenteDashboardVM
 
 @{
-    ViewData["Title"] = "Tableau de bord des listes d'attente";
+    ViewData["Title"] = "Tableau de bord";
 }
 
-<main class="waiting-dashboard container py-5">
-    <header class="waiting-dashboard__header">
-        <div>
-            <p class="waiting-dashboard__eyebrow mb-2">Espace clinique</p>
-            <h1 class="mb-2">Tableau de bord</h1>
-            <p class="text-muted mb-0">Suivez les listes d'attente et l'activité de vos cliniques.</p>
+<main class="waiting-dashboard container py-4 py-lg-5"
+      data-stats-url="@Url.Action("StatsDashboard", "ListeAttente", new { area = "Cliniques" })">
+    <header class="waiting-dashboard__banner">
+        <div class="waiting-dashboard__intro">
+            <p class="waiting-dashboard__eyebrow mb-1">Espace clinique</p>
+            <h1 class="mb-1">Tableau de bord</h1>
+            <p class="mb-0">Suivez les listes d'attente et l'activité de vos cliniques.</p>
         </div>
-
         <section class="waiting-dashboard__profile" aria-label="Informations du compte">
-            <div class="waiting-dashboard__avatar" aria-hidden="true">
+            <span class="waiting-dashboard__avatar" aria-hidden="true">
                 <i class="fa-solid fa-user"></i>
-            </div>
-            <div class="min-w-0">
-                <h2 class="h5 mb-1 text-truncate">@Model.NomUtilisateur</h2>
-                <p class="mb-2 text-muted text-truncate">@Model.Courriel</p>
-                <div class="d-flex flex-wrap gap-1">
-                    @if (Model.Roles.Count == 0)
+            </span>
+            <div class="waiting-dashboard__profile-info">
+                <h2>@Model.NomUtilisateur</h2>
+                @if (!string.IsNullOrWhiteSpace(Model.Courriel))
+                {
+                    <p class="waiting-dashboard__email">@Model.Courriel</p>
+                }
+                <div class="waiting-dashboard__roles">
+                    @foreach (var role in Model.Roles)
                     {
-                        <span class="badge text-bg-secondary">Personnel clinique</span>
-                    }
-                    else
-                    {
-                        @foreach (var role in Model.Roles)
-                        {
-                            <span class="badge text-bg-primary">@role</span>
-                        }
+                        <span class="badge rounded-pill">@role</span>
                     }
                 </div>
             </div>
         </section>
     </header>
 
-    <section class="mt-5" aria-labelledby="waiting-lists-title">
-        <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
+    <section class="waiting-dashboard__section" aria-labelledby="waiting-lists-title">
+        <div class="waiting-dashboard__toolbar">
             <div>
                 <p class="waiting-dashboard__eyebrow mb-1">Gestion</p>
-                <h2 class="h3 mb-0" id="waiting-lists-title">Listes d'attente</h2>
+                <h2 id="waiting-lists-title">Listes d'attente</h2>
             </div>
-            <div class="d-flex flex-wrap gap-2">
-                <a asp-area="Cliniques" asp-controller="ListeAttente" asp-action="Create" class="button-green-action">
-                    <i class="fa-solid fa-plus me-2" aria-hidden="true"></i>Créer une liste
+            <div class="waiting-dashboard__toolbar-actions">
+                <span class="waiting-dashboard__live" data-live-status data-connected="false" role="status">
+                    <span class="waiting-dashboard__live-dot" aria-hidden="true"></span>
+                    <span data-live-label>Hors ligne</span>
+                </span>
+                <a asp-area="Cliniques" asp-controller="ListeAttente" asp-action="Create"
+                   class="button-green-action waiting-dashboard__create">
+                    <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                    <span>Créer une liste</span>
                 </a>
                 <a asp-area="Cliniques" asp-controller="ListeAttente" asp-action="HistoriqueListeAttentes"
-                   class="button-white-action" aria-label="Consulter l'historique des listes d'attente">
+                   class="button-white-action waiting-dashboard__history"
+                   aria-label="Consulter l'historique des listes d'attente"
+                   title="Historique">
                     <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
                 </a>
             </div>
         </div>
 
+        @if (Model.Cliniques.Count > 1)
+        {
+            <nav class="waiting-dashboard__filters" aria-label="Filtrer par clinique">
+                <button type="button" class="waiting-dashboard__filter is-active"
+                        data-clinic-filter="all" aria-pressed="true">Toutes les cliniques</button>
+                @foreach (var clinique in Model.Cliniques)
+                {
+                    <button type="button" class="waiting-dashboard__filter"
+                            data-clinic-filter="@clinique.CliniqueID" aria-pressed="false">@clinique.NomClinique</button>
+                }
+            </nav>
+        }
+
         @if (Model.ListesAttente.Count == 0)
         {
-            <div class="card waiting-dashboard__empty">
-                <div class="card-body p-4">
-                    <i class="fa-regular fa-calendar-xmark fa-2x text-primary mb-3" aria-hidden="true"></i>
-                    <h3 class="h5">Aucune liste d'attente à venir</h3>
-                    <p class="text-muted mb-0">Les listes de vos cliniques apparaîtront ici.</p>
-                </div>
+            <div class="waiting-dashboard__empty" role="status">
+                <i class="fa-regular fa-calendar-xmark" aria-hidden="true"></i>
+                <h3>Aucune liste d'attente à venir</h3>
+                <p>Les listes de vos cliniques apparaîtront ici.</p>
             </div>
         }
         else
         {
-            <div class="row row-cols-1 row-cols-xl-2 g-4">
+            <div class="row row-cols-1 row-cols-xl-2 g-4 waiting-dashboard__grid">
                 @foreach (var liste in Model.ListesAttente)
                 {
-                    <div class="col">
-                        <article class="card waiting-list-card h-100">
+                    var stateClass = liste.EtatTemporel switch
+                    {
+                        "En cours" => "waiting-list-card__state--current",
+                        "Terminée" => "waiting-list-card__state--finished",
+                        _ => "waiting-list-card__state--upcoming"
+                    };
+                    var accessibleLabel = $"À venir : {liste.RendezVousAVenir}, en cours : {liste.RendezVousEnCours}, terminés : {liste.ConsultationsTerminees}, annulés par le patient : {liste.RendezVousAnnulesParPatient}, non présentés : {liste.RendezVousNonPresentes}.";
+
+                    <div class="col waiting-dashboard__card-column"
+                         data-clinic-card="@liste.CliniqueID" data-list-id="@liste.ListeAttenteID">
+                        <article class="waiting-list-card h-100">
                             <header class="waiting-list-card__header">
-                                <div class="min-w-0">
-                                    <p class="waiting-dashboard__eyebrow mb-1">Clinique</p>
-                                    <h3 class="h4 mb-0 text-truncate">@liste.NomClinique</h3>
+                                <div class="waiting-list-card__title">
+                                    <h3>@liste.NomClinique</h3>
+                                    <p><strong>@liste.Quand</strong><span aria-hidden="true"> · </span>@liste.DateEffectivite.ToString("dd/MM/yyyy")</p>
                                 </div>
-                                <span class="badge rounded-pill @(liste.IsOuverte ? "text-bg-success" : "text-bg-secondary")">
-                                    @(liste.IsOuverte ? "Ouverte" : "Fermée")
-                                </span>
+                                <span class="waiting-list-card__state @stateClass" data-temporal-state>@liste.EtatTemporel</span>
                             </header>
 
-                            <div class="card-body">
-                                <dl class="waiting-list-card__schedule mb-4">
-                                    <div>
-                                        <dt>Date d'effectivité</dt>
-                                        <dd>@liste.DateEffectivite.ToString("dd/MM/yyyy")</dd>
-                                    </div>
-                                    <div>
-                                        <dt>Ouverture</dt>
-                                        <dd>@liste.HeureOuverture.ToString(@"hh\:mm")</dd>
-                                    </div>
-                                    <div>
-                                        <dt>Fermeture</dt>
-                                        <dd>@liste.HeureFermeture.ToString(@"hh\:mm")</dd>
-                                    </div>
-                                </dl>
-
-                                <div class="waiting-list-card__stats">
-                                    <div class="waiting-list-card__doctors">
+                            <div class="waiting-list-card__body">
+                                <div class="waiting-list-card__summary">
+                                    <span>
+                                        <i class="fa-regular fa-clock" aria-hidden="true"></i>
+                                        Ouverture @liste.HeureOuverture.ToString(@"hh\:mm")
+                                        <span aria-hidden="true">→</span>
+                                        Fermeture @liste.HeureFermeture.ToString(@"hh\:mm")
+                                    </span>
+                                    <span>
                                         <i class="fa-solid fa-user-doctor" aria-hidden="true"></i>
-                                        <div>
-                                            <span class="waiting-list-card__stat-value">@liste.NbMedecinsDispo</span>
-                                            <span class="waiting-list-card__stat-label">médecin@(liste.NbMedecinsDispo == 1 ? "" : "s") de garde</span>
-                                        </div>
-                                    </div>
+                                        @liste.NbMedecinsDispo médecin@(liste.NbMedecinsDispo == 1 ? "" : "s") de garde
+                                    </span>
+                                </div>
+
+                                <div class="waiting-list-card__statistics">
                                     <div class="waiting-list-card__chart">
                                         <canvas id="waiting-list-chart-@liste.ListeAttenteID"
                                                 data-waiting-list-chart
-                                                data-scheduled="@liste.RendezVousPlanifies"
-                                                data-cancelled="@liste.RendezVousAnnules"
+                                                data-upcoming="@liste.RendezVousAVenir"
+                                                data-in-progress="@liste.RendezVousEnCours"
                                                 data-completed="@liste.ConsultationsTerminees"
+                                                data-patient-cancelled="@liste.RendezVousAnnulesParPatient"
+                                                data-no-show="@liste.RendezVousNonPresentes"
+                                                data-total="@liste.TotalRendezVous"
                                                 role="img"
-                                                aria-label="Rendez-vous planifiés : @liste.RendezVousPlanifies, annulés : @liste.RendezVousAnnules, consultations terminées : @liste.ConsultationsTerminees">
+                                                aria-label="@accessibleLabel">
                                         </canvas>
                                     </div>
+                                    <ul class="waiting-list-card__legend" aria-label="Statistiques des rendez-vous">
+                                        <li data-legend-item="upcoming"><span class="waiting-list-card__legend-dot waiting-list-card__legend-dot--upcoming" aria-hidden="true"></span><span>À venir</span><strong>@liste.RendezVousAVenir</strong></li>
+                                        <li data-legend-item="in-progress"><span class="waiting-list-card__legend-dot waiting-list-card__legend-dot--in-progress" aria-hidden="true"></span><span>En cours</span><strong>@liste.RendezVousEnCours</strong></li>
+                                        <li data-legend-item="completed"><span class="waiting-list-card__legend-dot waiting-list-card__legend-dot--completed" aria-hidden="true"></span><span>Terminés</span><strong>@liste.ConsultationsTerminees</strong></li>
+                                        <li data-legend-item="patient-cancelled"><span class="waiting-list-card__legend-dot waiting-list-card__legend-dot--patient-cancelled" aria-hidden="true"></span><span>Annulés par le patient</span><strong>@liste.RendezVousAnnulesParPatient</strong></li>
+                                        <li data-legend-item="no-show"><span class="waiting-list-card__legend-dot waiting-list-card__legend-dot--no-show" aria-hidden="true"></span><span>Non présentés</span><strong>@liste.RendezVousNonPresentes</strong></li>
+                                    </ul>
                                 </div>
                             </div>
 
                             <footer class="waiting-list-card__footer">
-                                <form asp-area="Cliniques" asp-controller="ListeAttente" asp-action="BasculerDisponibilite"
-                                      asp-route-id="@liste.ListeAttenteID" method="post">
-                                    <button type="submit"
-                                            class="@(liste.IsOuverte ? "button-green-action" : "button-white-action") waiting-list-card__toggle"
-                                            aria-label="@(liste.IsOuverte ? "Désactiver" : "Activer") la réservation pour @liste.NomClinique">
-                                        @if (liste.IsOuverte)
-                                        {
-                                            <i class="fa-solid fa-toggle-on" aria-hidden="true"></i>
-                                            <span>Disponible pour réservation *</span>
-                                        }
-                                        else
-                                        {
-                                            <i class="fa-solid fa-toggle-off" aria-hidden="true"></i>
-                                            <span>NO</span>
-                                        }
+                                <div class="waiting-list-card__availability">
+                                    <button type="button"
+                                            class="waiting-list-card__switch"
+                                            role="switch"
+                                            aria-checked="@(liste.ReservationsActivees ? "true" : "false")"
+                                            aria-label="Disponible pour réservation pour @liste.NomClinique"
+                                            data-availability-switch
+                                            data-toggle-url="@Url.Action("BasculerDisponibilite", "ListeAttente", new { area = "Cliniques", id = liste.ListeAttenteID })">
+                                        <span class="waiting-list-card__switch-track" aria-hidden="true"><span></span></span>
                                     </button>
-                                </form>
-
+                                    <span class="waiting-list-card__availability-label">Disponible pour réservation</span>
+                                    <strong class="waiting-list-card__availability-value @(liste.ReservationsActivees ? "" : "is-disabled")" data-availability-value>
+                                        @(liste.ReservationsActivees ? "OUI" : "NON")
+                                    </strong>
+                                </div>
                                 <nav class="waiting-list-card__actions" aria-label="Actions pour la liste du @liste.DateEffectivite.ToString("dd/MM/yyyy")">
                                     <a asp-area="Cliniques" asp-controller="ListeAttente" asp-action="Edit"
-                                       asp-route-id="@liste.ListeAttenteID" class="smBtn button-white-action"
+                                       asp-route-id="@liste.ListeAttenteID"
+                                       class="smBtn button-white-action"
                                        aria-label="Modifier la liste d'attente">
                                         <i class="fa-solid fa-gear" aria-hidden="true"></i>
                                     </a>
                                     <a asp-area="Cliniques" asp-controller="ListeAttente" asp-action="DetailsOrdonnes"
-                                       asp-route-id="@liste.ListeAttenteID" class="smBtn button-white-action"
+                                       asp-route-id="@liste.ListeAttenteID"
+                                       class="smBtn button-white-action"
                                        aria-label="Voir les détails de la liste d'attente">
                                         <i class="fa-solid fa-list-ul" aria-hidden="true"></i>
                                     </a>
                                     <a asp-area="Cliniques" asp-controller="ListeAttente" asp-action="Delete"
-                                       asp-route-id="@liste.ListeAttenteID" class="smBtn button-white-action"
+                                       asp-route-id="@liste.ListeAttenteID"
+                                       class="smBtn button-white-action"
                                        aria-label="Supprimer la liste d'attente">
                                         <i class="fa-solid fa-trash" aria-hidden="true"></i>
                                     </a>
@@ -158,52 +181,255 @@
                     </div>
                 }
             </div>
+            <p class="waiting-dashboard__filter-empty" data-filter-empty hidden>Aucune liste pour cette clinique.</p>
+            <p class="waiting-dashboard__note">
+                « Non présentés » : rendez-vous annulés automatiquement à la fermeture, car le patient était absent.
+                « Annulés par le patient » : annulations faites avant l'heure du rendez-vous.
+            </p>
         }
     </section>
 </main>
 
+<form class="visually-hidden" aria-hidden="true">
+    @Html.AntiForgeryToken()
+</form>
+
 @section Scripts {
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script>
-        document.querySelectorAll("[data-waiting-list-chart]").forEach((canvas) => {
-            new Chart(canvas, {
-                type: "doughnut",
-                data: {
-                    labels: ["Rendez-vous planifiés", "Rendez-vous annulés", "Consultations terminées"],
-                    datasets: [{
-                        data: [
-                            Number(canvas.dataset.scheduled),
-                            Number(canvas.dataset.cancelled),
-                            Number(canvas.dataset.completed)
-                        ],
-                        backgroundColor: ["#0d6efd", "#dc3545", "#198754"],
-                        borderColor: "#fff",
-                        borderWidth: 3
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: "62%",
-                    plugins: {
-                        legend: {
-                            position: "bottom",
-                            labels: {
-                                usePointStyle: true,
-                                padding: 14
-                            }
+        (() => {
+            const dashboard = document.querySelector(".waiting-dashboard");
+            const charts = new Map();
+            const labels = [
+                ["upcoming", "upcoming", "À venir", "#0d6efd"],
+                ["in-progress", "inProgress", "En cours", "#6ea8fe"],
+                ["completed", "completed", "Terminés", "#198754"],
+                ["patient-cancelled", "patientCancelled", "Annulés par le patient", "#fd7e14"],
+                ["no-show", "noShow", "Non présentés", "#dc3545"]
+            ];
+            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+
+            function valuesFor(item) {
+                return [
+                    Number(item.rendezVousAVenir),
+                    Number(item.rendezVousEnCours),
+                    Number(item.consultationsTerminees),
+                    Number(item.rendezVousAnnulesParPatient),
+                    Number(item.rendezVousNonPresentes)
+                ];
+            }
+
+            function setSwitch(button, enabled) {
+                button.setAttribute("aria-checked", enabled ? "true" : "false");
+                const value = button.closest(".waiting-list-card__availability")
+                    .querySelector("[data-availability-value]");
+                value.textContent = enabled ? "OUI" : "NON";
+                value.classList.toggle("is-disabled", !enabled);
+            }
+
+            function setLive(connected) {
+                const indicator = document.querySelector("[data-live-status]");
+                if (!indicator) return;
+                indicator.dataset.connected = connected ? "true" : "false";
+                indicator.querySelector("[data-live-label]").textContent = connected ? "En direct" : "Hors ligne";
+            }
+
+            function updateCard(item) {
+                const card = document.querySelector(`[data-list-id="${item.listeAttenteID}"]`);
+                if (!card) return;
+
+                const counts = valuesFor(item);
+                const chart = charts.get(item.listeAttenteID);
+                const chartValues = item.totalRendezVous === 0 ? [1] : counts;
+                if (chart) {
+                    chart.data.datasets[0].data = chartValues;
+                    chart.data.datasets[0].backgroundColor = item.totalRendezVous === 0
+                        ? ["#e9ecef"]
+                        : labels.map(label => label[3]);
+                    chart.options.plugins.centerTotal.total = item.totalRendezVous;
+                    chart.update();
+                }
+
+                labels.forEach((label, index) => {
+                    const count = card.querySelector(`[data-legend-item="${label[0]}"] strong`);
+                    if (count) count.textContent = counts[index];
+                });
+                const canvas = card.querySelector("[data-waiting-list-chart]");
+                canvas.dataset.total = item.totalRendezVous;
+                canvas.setAttribute("aria-label",
+                    `À venir : ${counts[0]}, en cours : ${counts[1]}, terminés : ${counts[2]}, annulés par le patient : ${counts[3]}, non présentés : ${counts[4]}.`);
+
+                const state = card.querySelector("[data-temporal-state]");
+                state.textContent = item.etatTemporel;
+                state.classList.remove(
+                    "waiting-list-card__state--current",
+                    "waiting-list-card__state--upcoming",
+                    "waiting-list-card__state--finished");
+                state.classList.add(item.etatTemporel === "En cours"
+                    ? "waiting-list-card__state--current"
+                    : item.etatTemporel === "Terminée"
+                        ? "waiting-list-card__state--finished"
+                        : "waiting-list-card__state--upcoming");
+
+                const toggle = card.querySelector("[data-availability-switch]");
+                setSwitch(toggle, item.reservationsActivees);
+            }
+
+            async function refreshDashboard() {
+                try {
+                    const response = await fetch(dashboard.dataset.statsUrl, {
+                        headers: { "Accept": "application/json" },
+                        cache: "no-store"
+                    });
+                    if (!response.ok) throw new Error(`Erreur de mise à jour (${response.status}).`);
+                    const items = await response.json();
+                    items.forEach(updateCard);
+                } catch (error) {
+                    console.error("Impossible de mettre à jour les statistiques du tableau de bord.", error);
+                }
+            }
+
+            try {
+                if (window.Chart) {
+                    document.querySelectorAll("[data-waiting-list-chart]").forEach((canvas) => {
+                        const total = Number(canvas.dataset.total);
+                        const data = labels.map(label => Number(canvas.dataset[label[1]]));
+                        const chart = new Chart(canvas, {
+                            type: "doughnut",
+                            data: {
+                                labels: labels.map(label => label[2]),
+                                datasets: [{
+                                    data: total === 0 ? [1] : data,
+                                    backgroundColor: total === 0 ? ["#e9ecef"] : labels.map(label => label[3]),
+                                    borderColor: "#fff",
+                                    borderWidth: 2
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                cutout: "62%",
+                                plugins: {
+                                    legend: { display: false },
+                                    centerTotal: { total }
+                                }
+                            },
+                            plugins: [{
+                                id: "centerTotal",
+                                afterDraw(instance) {
+                                    const { ctx, chartArea } = instance;
+                                    if (!chartArea) return;
+                                    const x = (chartArea.left + chartArea.right) / 2;
+                                    const y = (chartArea.top + chartArea.bottom) / 2;
+                                    const value = instance.options.plugins.centerTotal.total;
+                                    ctx.save();
+                                    ctx.textAlign = "center";
+                                    ctx.fillStyle = "#052c65";
+                                    ctx.font = "700 22px Montserrat, sans-serif";
+                                    ctx.fillText(value, x, y - 2);
+                                    ctx.fillStyle = "#495057";
+                                    ctx.font = "500 9px Montserrat, sans-serif";
+                                    ctx.fillText("rendez-vous", x, y + 13);
+                                    ctx.restore();
+                                }
+                            }]
+                        });
+                        charts.set(Number(canvas.closest("[data-list-id]").dataset.listId), chart);
+                    });
+                } else {
+                    console.error("Chart.js is unavailable; dashboard availability controls remain active.");
+                }
+            } catch (error) {
+                console.error("The dashboard charts could not be initialized; availability controls remain active.", error);
+            }
+
+            document.querySelectorAll("[data-clinic-filter]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const selected = button.dataset.clinicFilter;
+                    document.querySelectorAll("[data-clinic-filter]").forEach((filter) => {
+                        const active = filter === button;
+                        filter.classList.toggle("is-active", active);
+                        filter.setAttribute("aria-pressed", active ? "true" : "false");
+                    });
+                    let visible = 0;
+                    document.querySelectorAll("[data-clinic-card]").forEach((card) => {
+                        const show = selected === "all" || card.dataset.clinicCard === selected;
+                        card.hidden = !show;
+                        if (show) visible++;
+                    });
+                    const empty = document.querySelector("[data-filter-empty]");
+                    if (empty) empty.hidden = visible !== 0;
+                });
+            });
+
+            document.querySelectorAll("[data-availability-switch]").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    const wasEnabled = button.getAttribute("aria-checked") === "true";
+                    const intended = !wasEnabled;
+                    button.disabled = true;
+                    setSwitch(button, intended);
+                    try {
+                        const body = new FormData();
+                        body.append("__RequestVerificationToken", token);
+                        const response = await fetch(button.dataset.toggleUrl, {
+                            method: "POST",
+                            body,
+                            headers: {
+                                "Accept": "application/json",
+                                "RequestVerificationToken": token
+                            },
+                            credentials: "same-origin"
+                        });
+                        const result = response.headers.get("content-type")?.includes("application/json")
+                            ? await response.json()
+                            : {};
+                        if (!response.ok) {
+                            throw new Error(result.message || `La disponibilité n'a pas pu être modifiée (${response.status}).`);
                         }
+                        setSwitch(button, result.reservationsActivees);
+                        if (window.toastr) toastr.success(result.reservationsActivees
+                            ? "Les réservations sont activées."
+                            : "Les réservations sont désactivées.");
+                    } catch (error) {
+                        setSwitch(button, wasEnabled);
+                        if (window.toastr) toastr.error(error.message);
+                        console.error("Impossible de modifier la disponibilité de la liste.", error);
+                    } finally {
+                        button.disabled = false;
                     }
+                });
+            });
+
+            const connection = new signalR.HubConnectionBuilder()
+                .withUrl("/MiseAJourListeAttentePatientHub")
+                .withAutomaticReconnect()
+                .build();
+
+            connection.on("MiseAJourDashboardClinique", refreshDashboard);
+            connection.onreconnecting(() => setLive(false));
+            connection.onreconnected(async () => {
+                try {
+                    await connection.invoke("RejoindreCliniques");
+                    setLive(true);
+                    await refreshDashboard();
+                } catch (error) {
+                    setLive(false);
+                    console.error("Impossible de rejoindre les mises à jour des cliniques.", error);
                 }
             });
-        });
+            connection.onclose(() => setLive(false));
+            connection.start()
+                .then(() => connection.invoke("RejoindreCliniques"))
+                .then(() => {
+                    setLive(true);
+                    return refreshDashboard();
+                })
+                .catch((error) => {
+                    setLive(false);
+                    console.error("Impossible de connecter le tableau de bord en temps réel.", error);
+                });
 
-        const dashboardConnection = new signalR.HubConnectionBuilder()
-            .withUrl("/MiseAJourListeAttentePatientHub")
-            .withAutomaticReconnect()
-            .build();
-
-        dashboardConnection.on("MiseAJourListeSalleDAttentePatient", () => window.location.reload());
-        dashboardConnection.start().catch((error) => console.error("Impossible de connecter le tableau de bord en temps réel.", error));
+            window.setInterval(refreshDashboard, 30000);
+        })();
     </script>
 }

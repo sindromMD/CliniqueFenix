@@ -70,7 +70,7 @@
                             <tbody>
                                 @foreach (var item in Model)
                                 {
-                                    var listeAttenteId = item.Clinique.ListeAttente.Where(x => x.CliniqueID == item.Clinique.CliniqueID && x.IsOuverte).First()?.ListeAttenteID;
+                                    var listeAttenteId = item.Clinique.ListeAttente.Where(x => x.CliniqueID == item.Clinique.CliniqueID && x.ReservationsActivees && x.IsOuverte).First()?.ListeAttenteID;
                                     string concatenatedAddress = $"{item.Clinique.Adresse.Numero} {item.Clinique.Adresse.Rue}, {item.Clinique.Adresse.Ville}, {item.Clinique.Adresse.Province}, {item.Clinique.Adresse.Pays}, {item.Clinique.Adresse.CodePostal}";
 
                                     <tr>

@@ -803,6 +803,12 @@ namespace Clinique2000_DataAccess.Migrations
                     b.Property<bool>("IsOuverte")
                         .HasColumnType("bit");
 
+                    b.Property<int>("NbAnnulationsPatient")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("ReservationsActivees")
+                        .HasColumnType("bit");
+
                     b.Property<int>("NbMedecinsDispo")
                         .HasColumnType("int");
 
@@ -823,7 +829,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -835,7 +843,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 1
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 1,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -847,7 +857,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -859,7 +871,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -871,7 +885,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -883,7 +899,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -895,7 +913,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -907,7 +927,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -919,7 +941,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -931,7 +955,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -943,7 +969,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = false,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -955,7 +983,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = false,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -967,7 +997,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -979,7 +1011,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -991,7 +1025,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = false,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1003,7 +1039,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1015,7 +1053,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = false,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1027,7 +1067,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = false,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1039,7 +1081,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1051,7 +1095,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1063,7 +1109,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1075,7 +1123,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = true,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1087,7 +1137,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = false,
-                            NbMedecinsDispo = 2
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 2,
+                            ReservationsActivees = true
                         },
                         new
                         {
@@ -1099,7 +1151,9 @@ namespace Clinique2000_DataAccess.Migrations
                             HeurePauseDebut = new TimeSpan(0, 0, 0, 0, 0),
                             HeurePauseFin = new TimeSpan(0, 0, 0, 0, 0),
                             IsOuverte = false,
-                            NbMedecinsDispo = 3
+                            NbAnnulationsPatient = 0,
+                            NbMedecinsDispo = 3,
+                            ReservationsActivees = true
                         });
                 });
 

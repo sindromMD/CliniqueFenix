@@ -13,6 +13,7 @@ namespace Clinique2000_Services.IServices
     {
         Task<ListeAttente> CreerListeAttenteAsync(ListeAttente listeAttente);
         Task<ListeAttente> ModifierListeAttenteAsync(ListeAttente listeAttente);
+        Task<bool> ContientCreneauxDisponiblesAsync(int listeAttenteID);
         bool PeutSupprimmer(ListeAttente listeAttente);
         Task SupprimmerListeAttente(ListeAttente listeAttente);
         bool VerifierSiListeAttenteExisteMemeJourClinique(DateTime dateEffectivite, int cliniqueID, int? listeAttenteID = null);
@@ -28,5 +29,14 @@ namespace Clinique2000_Services.IServices
         Task<DateTime> ObtenirDerniereListeAttenteParClinique(int cliniqueID);
         Task<ListeAttente> GenererListeAttenteParDefaut(EmployesClinique ec);
         Task<int> ObtenirIDListeAttente(int cliniqueID, DateTime dateEffectivite);
+        Task<List<ListeAttenteDashboardCliniqueVM>> ObtenirCliniquesAutoriseesDashboardAsync(
+            string userId,
+            string? email,
+            bool emailConfirmed,
+            bool isAdminClinique,
+            bool isSuperAdmin);
+        Task<List<ListeAttenteDashboardItemVM>> ObtenirDashboardAsync(
+            IReadOnlyCollection<ListeAttenteDashboardCliniqueVM> cliniques,
+            DateTime maintenantUtc);
     }
 }

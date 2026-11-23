@@ -107,6 +107,7 @@ builder.Services.AddScoped<ICliniqueService, CliniqueService>();
 builder.Services.AddScoped<IdbInitialiser, DbInitialiser>();
 builder.Services.AddScoped<IAdresseService, AdresseService>();
 builder.Services.AddScoped<IListeAttenteService, ListeAttenteService>();
+builder.Services.AddScoped<ICliniqueDashboardNotifier, SignalRCliniqueDashboardNotifier>();
 builder.Services.AddScoped<IAuthenGoogleService, AuthenGoogleService>();
 builder.Services.AddScoped(typeof(IPatientService), typeof(PatientService));
 builder.Services.AddScoped<IConsultationService, ConsultationService>();
