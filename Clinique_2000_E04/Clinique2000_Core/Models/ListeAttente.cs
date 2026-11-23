@@ -17,7 +17,11 @@ namespace Clinique2000_Core.Models
         [Key]
         public int ListeAttenteID { get; set; }
 
+        public bool ReservationsActivees { get; set; } = true;
+
         public bool IsOuverte { get; set; } = false;
+
+        public int NbAnnulationsPatient { get; set; }
 
 
         [Display(Name = "Date d'effectivité")]

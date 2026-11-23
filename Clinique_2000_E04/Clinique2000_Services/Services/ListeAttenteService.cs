@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
 using Clinique2000_DataAccess.Data;
@@ -9,7 +10,9 @@ using Clinique2000_Core.Models;
 using Clinique2000_Core.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Clinique2000_Utility.Enum;
+using Clinique2000_Utility;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -26,6 +29,156 @@ namespace Clinique2000_Services.Services
         {
             _context = context;
             _emailService = emailService;
+        }
+
+        public async Task<List<ListeAttenteDashboardCliniqueVM>> ObtenirCliniquesAutoriseesDashboardAsync(
+            string userId,
+            string? email,
+            bool emailConfirmed,
+            bool isAdminClinique,
+            bool isSuperAdmin)
+        {
+            var employesAutorises = _context.EmployesClinique.Where(employe =>
+                (employe.UserID == userId ||
+                 (emailConfirmed && email != null && employe.EmployeCliniqueCourriel == email)) &&
+                (employe.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste ||
+                 employe.EmployeCliniquePosition == EmployeCliniquePosition.AdminClinique));
+
+            return await _context.Cliniques
+                .AsNoTracking()
+                .Where(clinique =>
+                    isSuperAdmin ||
+                    (isAdminClinique && clinique.CreateurID == userId) ||
+                    employesAutorises.Any(employe => employe.CliniqueID == clinique.CliniqueID))
+                .OrderBy(clinique => clinique.NomClinique)
+                .Select(clinique => new ListeAttenteDashboardCliniqueVM
+                {
+                    CliniqueID = clinique.CliniqueID,
+                    NomClinique = clinique.NomClinique,
+                    FuseauHoraire = _context.AdressesQuebec
+                        .Where(adresse => adresse.PostalCode == clinique.Adresse.CodePostal)
+                        .Select(adresse => (int?)adresse.TimeZone)
+                        .FirstOrDefault(),
+                    NomEmploye = employesAutorises
+                        .Where(employe => employe.CliniqueID == clinique.CliniqueID)
+                        .Select(employe => (employe.EmployeCliniquePrenom + " " + employe.EmployeCliniqueNom).Trim())
+                        .FirstOrDefault(),
+                    EstReceptionniste = employesAutorises.Any(employe =>
+                        employe.CliniqueID == clinique.CliniqueID &&
+                        employe.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste),
+                    EstAdminClinique = employesAutorises.Any(employe =>
+                        employe.CliniqueID == clinique.CliniqueID &&
+                        employe.EmployeCliniquePosition == EmployeCliniquePosition.AdminClinique)
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<ListeAttenteDashboardItemVM>> ObtenirDashboardAsync(
+            IReadOnlyCollection<ListeAttenteDashboardCliniqueVM> cliniques,
+            DateTime maintenantUtc)
+        {
+            if (maintenantUtc.Kind != DateTimeKind.Utc)
+            {
+                throw new ArgumentException("La date doit être en UTC.", nameof(maintenantUtc));
+            }
+
+            foreach (var clinique in cliniques)
+            {
+                if (!clinique.FuseauHoraire.HasValue)
+                {
+                    throw new ValidationException($"Le fuseau horaire de la clinique {clinique.NomClinique} est introuvable.");
+                }
+
+                clinique.MaintenantLocale = CliniqueTimeZone.ConvertUtcToLocal(
+                    maintenantUtc,
+                    clinique.FuseauHoraire.Value);
+            }
+
+            if (cliniques.Count == 0)
+            {
+                return new List<ListeAttenteDashboardItemVM>();
+            }
+
+            var listeParameter = Expression.Parameter(typeof(ListeAttente), "liste");
+            var dateEffectivite = Expression.Property(
+                Expression.Property(listeParameter, nameof(ListeAttente.DateEffectivite)),
+                nameof(DateTime.Date));
+            Expression filtre = Expression.Constant(false);
+
+            foreach (var clinique in cliniques)
+            {
+                var clinicAndDate = Expression.AndAlso(
+                    Expression.Equal(
+                        Expression.Property(listeParameter, nameof(ListeAttente.CliniqueID)),
+                        Expression.Constant(clinique.CliniqueID)),
+                    Expression.GreaterThanOrEqual(
+                        dateEffectivite,
+                        Expression.Constant(clinique.MaintenantLocale.Date)));
+                filtre = Expression.OrElse(filtre, clinicAndDate);
+            }
+
+            var predicate = Expression.Lambda<Func<ListeAttente, bool>>(filtre, listeParameter);
+            var maintenantParClinique = cliniques.ToDictionary(clinique => clinique.CliniqueID);
+            var resultats = await _context.ListeAttentes
+                .AsNoTracking()
+                .Where(predicate)
+                .OrderBy(liste => liste.DateEffectivite)
+                .ThenBy(liste => liste.Clinique.NomClinique)
+                .Select(liste => new ListeAttenteDashboardItemVM
+                {
+                    ListeAttenteID = liste.ListeAttenteID,
+                    CliniqueID = liste.CliniqueID,
+                    NomClinique = liste.Clinique.NomClinique,
+                    DateEffectivite = liste.DateEffectivite,
+                    HeureOuverture = liste.HeureOuverture,
+                    HeureFermeture = liste.HeureFermeture,
+                    IsOuverte = liste.IsOuverte,
+                    ReservationsActivees = liste.ReservationsActivees,
+                    NbMedecinsDispo = liste.NbMedecinsDispo,
+                    RendezVousAVenir = _context.Consultations.Count(consultation =>
+                        consultation.PlageHoraire.ListeAttenteID == liste.ListeAttenteID &&
+                        consultation.PatientID.HasValue &&
+                        (consultation.StatutConsultation == StatutConsultation.EnAttente ||
+                         consultation.StatutConsultation == StatutConsultation.EnRetard)),
+                    RendezVousEnCours = _context.Consultations.Count(consultation =>
+                        consultation.PlageHoraire.ListeAttenteID == liste.ListeAttenteID &&
+                        consultation.StatutConsultation == StatutConsultation.EnCours),
+                    ConsultationsTerminees = _context.Consultations.Count(consultation =>
+                        consultation.PlageHoraire.ListeAttenteID == liste.ListeAttenteID &&
+                        consultation.StatutConsultation == StatutConsultation.Termine),
+                    RendezVousAnnulesParPatient = liste.NbAnnulationsPatient,
+                    RendezVousNonPresentes = _context.Consultations.Count(consultation =>
+                        consultation.PlageHoraire.ListeAttenteID == liste.ListeAttenteID &&
+                        consultation.PatientID.HasValue &&
+                        consultation.StatutConsultation == StatutConsultation.Annulle)
+                })
+                .ToListAsync();
+
+            var culture = CultureInfo.GetCultureInfo("fr-CA");
+            foreach (var item in resultats)
+            {
+                var maintenantLocale = maintenantParClinique[item.CliniqueID].MaintenantLocale;
+                var ouverture = item.DateEffectivite.Date.Add(item.HeureOuverture);
+                var fermeture = item.DateEffectivite.Date.Add(item.HeureFermeture);
+                item.EtatTemporel = maintenantLocale >= fermeture
+                    ? "Terminée"
+                    : maintenantLocale >= ouverture
+                        ? "En cours"
+                        : "À venir";
+                item.Quand = item.DateEffectivite.Date == maintenantLocale.Date
+                    ? "Aujourd'hui"
+                    : item.DateEffectivite.Date == maintenantLocale.Date.AddDays(1)
+                        ? "Demain"
+                        : culture.TextInfo.ToTitleCase(item.DateEffectivite.ToString("dddd", culture));
+                item.TotalRendezVous =
+                    item.RendezVousAVenir +
+                    item.RendezVousEnCours +
+                    item.ConsultationsTerminees +
+                    item.RendezVousAnnulesParPatient +
+                    item.RendezVousNonPresentes;
+            }
+
+            return resultats;
         }
 
         public async Task<ListeAttente> CreerListeAttenteAsync(ListeAttente listeAttente)
@@ -68,9 +221,17 @@ namespace Clinique2000_Services.Services
             }
             else
             {
+                listeAttente.IsOuverte = await ContientCreneauxDisponiblesAsync(listeAttente.ListeAttenteID);
                 await EditerAsync(listeAttente);
                 return listeAttente;
             }
+        }
+
+        public Task<bool> ContientCreneauxDisponiblesAsync(int listeAttenteID)
+        {
+            return _context.Consultations.AnyAsync(consultation =>
+                consultation.PlageHoraire.ListeAttenteID == listeAttenteID &&
+                consultation.StatutConsultation == StatutConsultation.DisponiblePourReservation);
         }
 
         /// <summary>
@@ -223,6 +384,10 @@ namespace Clinique2000_Services.Services
             }
             await _context.SaveChangesAsync();
             await RetirerPausesListeAttente(listeAttente);
+            listeAttente.IsOuverte = await _context.Consultations.AnyAsync(consultation =>
+                consultation.PlageHoraire.ListeAttenteID == ID &&
+                consultation.StatutConsultation == StatutConsultation.DisponiblePourReservation);
+            await _context.SaveChangesAsync();
         }
 
 
@@ -319,27 +484,36 @@ namespace Clinique2000_Services.Services
 
         }
 
-        public async Task<DateTime> ObtenirDerniereListeAttenteParClinique(int cliniqueID)
+        public async Task<ListeAttente> ObtenirValeursParDefautCreationAsync(int cliniqueID)
         {
-            DateTime date = await _context.ListeAttentes.Where(la => la.CliniqueID == cliniqueID).MaxAsync(la => la.DateEffectivite);
-            
-            return date.AddDays(1);
-        }
-
-        public async Task<ListeAttente> GenererListeAttenteParDefaut(EmployesClinique ec)
-        {
-            ListeAttente listeAttente = new ListeAttente
+            var clinique = await _context.Cliniques
+                .Include(candidate => candidate.EmployesCliniques)
+                .FirstOrDefaultAsync(candidate => candidate.CliniqueID == cliniqueID);
+            if (clinique == null)
             {
-                DateEffectivite = await ObtenirDerniereListeAttenteParClinique(ec.CliniqueID),
-                HeureOuverture = (TimeSpan)ec.Clinique.HeureOuverture,
-                HeureFermeture = (TimeSpan)ec.Clinique.HeureFermeture,
-                NbMedecinsDispo = ec.Clinique.EmployesCliniques.Count(x => x.EmployeCliniquePosition == EmployeCliniquePosition.Medecin),
-                CliniqueID = ec.CliniqueID,
-                HeurePauseDebut = (TimeSpan)ec.Clinique.HeurePauseDebut,
-                HeurePauseFin = (TimeSpan)ec.Clinique.HeurePauseFin
-            };
+                throw new ValidationException("La clinique sélectionnée est introuvable.");
+            }
 
-            return listeAttente;
+            var derniereDate = await _context.ListeAttentes
+                .Where(liste => liste.CliniqueID == cliniqueID)
+                .Select(liste => (DateTime?)liste.DateEffectivite)
+                .MaxAsync();
+            var dateMinimale = DateTime.Today;
+            var dateEffectivite = !derniereDate.HasValue || derniereDate.Value.Date < dateMinimale
+                ? dateMinimale
+                : derniereDate.Value.Date.AddDays(1);
+
+            return new ListeAttente
+            {
+                DateEffectivite = dateEffectivite,
+                HeureOuverture = clinique.HeureOuverture ?? TimeSpan.Zero,
+                HeureFermeture = clinique.HeureFermeture ?? TimeSpan.Zero,
+                NbMedecinsDispo = clinique.EmployesCliniques.Count(employee =>
+                    employee.EmployeCliniquePosition == EmployeCliniquePosition.Medecin),
+                CliniqueID = clinique.CliniqueID,
+                HeurePauseDebut = clinique.HeurePauseDebut ?? TimeSpan.Zero,
+                HeurePauseFin = clinique.HeurePauseFin ?? TimeSpan.Zero
+            };
         }
 
         public async Task RetirerPausesListeAttente(ListeAttente listeAttente)

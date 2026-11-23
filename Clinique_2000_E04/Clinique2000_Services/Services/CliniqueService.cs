@@ -256,19 +256,19 @@ namespace Clinique2000_Services.Services
             if (!isOuvert.HasValue)
             {
                 query = query
-                    .Where(la => la.Clinique.CliniqueID == clinicId && la.IsOuverte)
+                    .Where(la => la.Clinique.CliniqueID == clinicId && la.ReservationsActivees && la.IsOuverte)
                     .OrderBy(x => x.DateEffectivite);
             }
             else if (isOuvert.Value)
             {
                 query = query
-                    .Where(la => la.Clinique.CliniqueID == clinicId && la.IsOuverte)
+                    .Where(la => la.Clinique.CliniqueID == clinicId && la.ReservationsActivees && la.IsOuverte)
                     .OrderBy(x => x.DateEffectivite);
             }
             else
             {
                 query = query
-                    .Where(la => la.Clinique.CliniqueID == clinicId && !la.IsOuverte)
+                    .Where(la => la.Clinique.CliniqueID == clinicId && (!la.ReservationsActivees || !la.IsOuverte))
                     .OrderBy(x => x.DateEffectivite);
 
             }
@@ -292,6 +292,7 @@ namespace Clinique2000_Services.Services
             {
                 bool aListeAttenteOuverteAvecConsultations = _context.ListeAttentes
                     .Any(la => la.CliniqueID == clinique.CliniqueID &&
+                               la.ReservationsActivees &&
                                la.IsOuverte &&
                                la.PlagesHoraires.Any(ph => ph.Consultations.Any(c => c.StatutConsultation == StatutConsultation.DisponiblePourReservation)));
 
@@ -303,6 +304,8 @@ namespace Clinique2000_Services.Services
                     var prochainePlageHoraire = _context.PlagesHoraires
                         .Include(ph => ph.Consultations)
                         .Where(ph => ph.ListeAttente.CliniqueID == clinique.CliniqueID &&
+                                     ph.ListeAttente.ReservationsActivees &&
+                                     ph.ListeAttente.IsOuverte &&
                                      ph.Consultations.Any(c => c.StatutConsultation == StatutConsultation.DisponiblePourReservation))
                         .OrderBy(ph => ph.HeureDebut)
                         .FirstOrDefault();

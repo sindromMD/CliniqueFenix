@@ -6,6 +6,7 @@ using Clinique2000_Utility.Enum;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Moq;
+using System.Security.Claims;
 
 namespace Clinique2000_TestsUnitaires
 {
@@ -49,6 +50,93 @@ namespace Clinique2000_TestsUnitaires
             Assert.Equal(StatutConsultation.DisponiblePourReservation, consultation.StatutConsultation);
             Assert.Null(consultation.PatientID);
             Assert.True(consultation.PlageHoraire!.ListeAttente!.IsOuverte);
+            Assert.True(consultation.PlageHoraire.ListeAttente.ReservationsActivees);
+            Assert.Equal(1, consultation.PlageHoraire.ListeAttente.NbAnnulationsPatient);
+        }
+
+        [Fact]
+        public async Task AnnulerConsultationAsync_DoesNotReenableManualAvailability()
+        {
+            await using var context = CreateContext();
+            var consultation = await SeedAsync(context);
+            consultation.PlageHoraire!.ListeAttente!.ReservationsActivees = false;
+            await context.SaveChangesAsync();
+            var service = CreateService(context, new DateTime(2026, 11, 20, 14, 0, 0, DateTimeKind.Utc));
+
+            await service.AnnulerConsultationAsync(consultation.ConsultationID, 42);
+
+            Assert.True(consultation.PlageHoraire.ListeAttente.IsOuverte);
+            Assert.False(consultation.PlageHoraire.ListeAttente.ReservationsActivees);
+            Assert.Equal(1, consultation.PlageHoraire.ListeAttente.NbAnnulationsPatient);
+        }
+
+        [Fact]
+        public async Task AnnulerConsultationAsync_PatientOverload_IncrementsPatientCancellationCount()
+        {
+            await using var context = CreateContext();
+            var consultation = await SeedAsync(context);
+            var patient = await context.Patients.SingleAsync(candidate => candidate.PatientId == 42);
+            var service = CreateService(context, new DateTime(2026, 11, 20, 14, 0, 0, DateTimeKind.Utc));
+
+            await service.AnnulerConsultationAsync(patient);
+
+            Assert.Equal(1, consultation.PlageHoraire!.ListeAttente!.NbAnnulationsPatient);
+            Assert.Equal(StatutConsultation.DisponiblePourReservation, consultation.StatutConsultation);
+        }
+
+        [Theory]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        public async Task ReserverConsultationAsync_RejectsClosedListOrDisabledReservations(
+            bool reservationsEnabled,
+            bool hasOpenSlots)
+        {
+            await using var context = CreateContext();
+            var consultation = await SeedAsync(context);
+            consultation.PatientID = null;
+            consultation.StatutConsultation = StatutConsultation.DisponiblePourReservation;
+            consultation.PlageHoraire!.ListeAttente!.ReservationsActivees = reservationsEnabled;
+            consultation.PlageHoraire.ListeAttente.IsOuverte = hasOpenSlots;
+            await context.SaveChangesAsync();
+
+            var httpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, "patient-user")
+                }, "Test"))
+            };
+            var service = CreateService(context, new DateTime(2026, 11, 20, 14, 0, 0, DateTimeKind.Utc), httpContext);
+
+            var exception = await Assert.ThrowsAsync<System.ComponentModel.DataAnnotations.ValidationException>(
+                () => service.ReserverConsultationAsync(consultation.ConsultationID));
+
+            Assert.Equal("La liste d'attente est fermée.", exception.Message);
+        }
+
+        [Fact]
+        public async Task ObtenirDashboardAsync_DoesNotCountAutomaticCancellationAsPatientCancellation()
+        {
+            await using var context = CreateContext();
+            var consultation = await SeedAsync(context);
+            consultation.StatutConsultation = StatutConsultation.Annulle;
+            await context.SaveChangesAsync();
+            var service = new ListeAttenteService(
+                context,
+                Mock.Of<Clinique2000_Services.IServices.IEmailService>());
+            var clinic = new Clinique2000_Core.ViewModels.ListeAttenteDashboardCliniqueVM
+            {
+                CliniqueID = 1,
+                NomClinique = "Clinique",
+                FuseauHoraire = 5
+            };
+
+            var item = Assert.Single(await service.ObtenirDashboardAsync(
+                new[] { clinic },
+                new DateTime(2026, 11, 20, 22, 0, 0, DateTimeKind.Utc)));
+
+            Assert.Equal(0, item.RendezVousAnnulesParPatient);
+            Assert.Equal(1, item.RendezVousNonPresentes);
         }
 
         [Fact]
@@ -145,6 +233,25 @@ namespace Clinique2000_TestsUnitaires
             plage.Consultations = new List<Consultation> { consultation };
             liste.PlagesHoraires = new List<PlageHoraire> { plage };
 
+            context.ApplicationUser.Add(new ApplicationUser
+            {
+                Id = "patient-user",
+                UserName = "patient@example.com",
+                Email = "patient@example.com"
+            });
+            context.Patients.Add(new Patient
+            {
+                PatientId = 42,
+                Nom = "Patient",
+                Prenom = "Test",
+                NAM = "ABCD 1234 5678",
+                CodePostal = "H1A 1A1",
+                DateDeNaissance = new DateTime(1990, 1, 1),
+                Age = 36,
+                Courriel = "patient@example.com",
+                NumTelephone = "5145551234",
+                UserId = "patient-user"
+            });
             context.AdressesQuebec.Add(new AdressesQuebec
             {
                 Id = 1,
@@ -158,16 +265,20 @@ namespace Clinique2000_TestsUnitaires
             return consultation;
         }
 
-        private static ConsultationService CreateService(CliniqueDbContext context, DateTime utcNow)
+        private static ConsultationService CreateService(
+            CliniqueDbContext context,
+            DateTime utcNow,
+            HttpContext? httpContext = null)
         {
             return new ConsultationService(
                 context,
                 Mock.Of<Clinique2000_Services.IServices.IPatientService>(),
-                new HttpContextAccessor(),
+                new HttpContextAccessor { HttpContext = httpContext },
                 Mock.Of<Clinique2000_Services.IServices.IListeAttenteService>(),
                 Mock.Of<Clinique2000_Services.IServices.IEmailService>(),
                 Mock.Of<Clinique2000_Services.IServices.ISMSService>(),
-                new FixedClock(utcNow));
+                new FixedClock(utcNow),
+                Mock.Of<Clinique2000_Services.IServices.ICliniqueDashboardNotifier>());
         }
 
         private sealed class FixedClock : IClock

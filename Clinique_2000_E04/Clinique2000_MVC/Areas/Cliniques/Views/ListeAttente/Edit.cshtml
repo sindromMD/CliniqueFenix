@@ -33,9 +33,9 @@
                         <div asp-validation-summary="ModelOnly" class="text-danger"></div>
 
                         <div class="form-group mb-3">
-                            <label asp-for="IsOuverte" class="form-label">Disponible pour réservation<span class="champs-obligatoires"> *</span></label>
-                            @Html.DropDownListFor(model => model.IsOuverte, isOuverteSelectList, new { @class = "form-control" })
-                            <span asp-validation-for="IsOuverte" class="text-danger"></span>
+                            <label asp-for="ReservationsActivees" class="form-label">Disponible pour réservation<span class="champs-obligatoires"> *</span></label>
+                            @Html.DropDownListFor(model => model.ReservationsActivees, isOuverteSelectList, new { @class = "form-control" })
+                            <span asp-validation-for="ReservationsActivees" class="text-danger"></span>
                         </div>
 
                         <div class="form-group mb-3">

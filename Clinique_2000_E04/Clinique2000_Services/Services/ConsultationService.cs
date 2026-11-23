@@ -23,6 +23,7 @@ namespace Clinique2000_Services.Services
         private readonly IEmailService _emailService;
         private readonly ISMSService _sMSService;
         private readonly IClock _clock;
+        private readonly ICliniqueDashboardNotifier _dashboardNotifier;
 
 
 
@@ -32,7 +33,8 @@ namespace Clinique2000_Services.Services
             IListeAttenteService listeAttenteService,
             IEmailService emailService,
             ISMSService sMSService,
-            IClock clock) : base(context)
+            IClock clock,
+            ICliniqueDashboardNotifier dashboardNotifier) : base(context)
         {
             _context = context;
             _servicePatient = servicePatient;
@@ -41,6 +43,7 @@ namespace Clinique2000_Services.Services
             _emailService = emailService;
             _sMSService = sMSService;
             _clock = clock;
+            _dashboardNotifier = dashboardNotifier;
 
         }
 
@@ -84,7 +87,7 @@ namespace Clinique2000_Services.Services
                 throw new ValidationException("Le patient a déjà une consultation planifiée.");
             }
 
-            if (await ListeAttenteOuverteAsync(consultationId) == false)
+            if (!listeAttente.ReservationsActivees || !listeAttente.IsOuverte)
             {
                 throw new ValidationException("La liste d'attente est fermée.");
             }
@@ -99,6 +102,7 @@ namespace Clinique2000_Services.Services
             var patient= await _servicePatient.ObtenirParIdAsync(patientId);
             //_sMSService.SendConfirmationSMS(consultation, patient.NumTelephone);
             await _context.SaveChangesAsync();
+            await _dashboardNotifier.NotifierChangementAsync(listeAttente.CliniqueID);
 
         }
 
@@ -166,7 +170,7 @@ namespace Clinique2000_Services.Services
             ListeAttente listeAttente = tuple.Item2;
 
             // Vérifie si la liste d'attente est ouverte
-            return listeAttente != null && listeAttente.IsOuverte;
+            return listeAttente != null && listeAttente.ReservationsActivees && listeAttente.IsOuverte;
         }
 
         public async Task<int> ObtenirIdPatientAsync()
@@ -292,6 +296,7 @@ namespace Clinique2000_Services.Services
                 consultation.StatutConsultation = StatutConsultation.EnCours;
                 consultation.HeureDateDebutReele = DateTime.Now;
                 await EditerAsync(consultation);
+                await _dashboardNotifier.NotifierChangementAsync(consultation.PlageHoraire.ListeAttente.CliniqueID);
                 ListeAttenteVM nouvelleListeAttenteVM = await _listeAttenteService.GetListeSalleAttenteOrdonnee(consultation.PlageHoraire.ListeAttenteID);
                 return nouvelleListeAttenteVM;
 
@@ -328,6 +333,7 @@ namespace Clinique2000_Services.Services
                     consultation.DetailsConsultation = details;
                     // Enregistre les modifications dans la base de donn�es.
                     await EditerAsync(consultation);
+                    await _dashboardNotifier.NotifierChangementAsync(consultation.PlageHoraire.ListeAttente.CliniqueID);
 
                     // Obtient la liste d'attente mise � jour.
                     ListeAttenteVM nouvelleListeAttenteVM = await _listeAttenteService.GetListeSalleAttenteOrdonnee(consultation.PlageHoraire.ListeAttenteID);
@@ -374,13 +380,17 @@ namespace Clinique2000_Services.Services
                 consultation.StatutConsultation = StatutConsultation.DisponiblePourReservation;
                 _emailService.ConsultationCompleted(consultation.Patient);
                 consultation.PatientID = null;
-                ListeAttente listeAttente = await _context.ListeAttentes.Where(la => la.ListeAttenteID == consultation.PlageHoraire.ListeAttenteID).FirstOrDefaultAsync();
-                if (listeAttente != null)
+                var listeAttente = await _context.ListeAttentes
+                    .FirstOrDefaultAsync(la => la.ListeAttenteID == consultation.PlageHoraire.ListeAttenteID);
+                if (listeAttente == null)
                 {
-                    listeAttente.IsOuverte = true;
-
+                    throw new ValidationException("La liste d'attente associée est introuvable.");
                 }
+
+                listeAttente.IsOuverte = true;
+                listeAttente.NbAnnulationsPatient++;
                 await _context.SaveChangesAsync();
+                await _dashboardNotifier.NotifierChangementAsync(listeAttente.CliniqueID);
             }
         }
 
@@ -408,7 +418,9 @@ namespace Clinique2000_Services.Services
             consultation.StatutConsultation = StatutConsultation.DisponiblePourReservation;
             consultation.PatientID = null;
             consultation.PlageHoraire.ListeAttente.IsOuverte = true;
+            consultation.PlageHoraire.ListeAttente.NbAnnulationsPatient++;
             await _context.SaveChangesAsync();
+            await _dashboardNotifier.NotifierChangementAsync(consultation.PlageHoraire.ListeAttente.CliniqueID);
         }
 
         public async Task<int> AnnulerRendezVousNonUtilisesAsync(DateTime maintenantUtc)
@@ -442,6 +454,7 @@ namespace Clinique2000_Services.Services
             var maintenantParFuseau = new Dictionary<int, DateTime>();
             var nombreAnnulees = 0;
             var donneesModifiees = false;
+            var cliniquesModifiees = new HashSet<int>();
 
             foreach (var listeAttente in listesAttente)
             {
@@ -468,6 +481,7 @@ namespace Clinique2000_Services.Services
                 {
                     listeAttente.IsOuverte = false;
                     donneesModifiees = true;
+                    cliniquesModifiees.Add(listeAttente.CliniqueID);
                 }
 
                 foreach (var plage in listeAttente.PlagesHoraires ?? new List<PlageHoraire>())
@@ -485,6 +499,7 @@ namespace Clinique2000_Services.Services
                         consultation.StatutConsultation = StatutConsultation.Annulle;
                         nombreAnnulees++;
                         donneesModifiees = true;
+                        cliniquesModifiees.Add(listeAttente.CliniqueID);
                     }
                 }
             }
@@ -492,6 +507,10 @@ namespace Clinique2000_Services.Services
             if (donneesModifiees)
             {
                 await _context.SaveChangesAsync();
+                foreach (var cliniqueId in cliniquesModifiees)
+                {
+                    await _dashboardNotifier.NotifierChangementAsync(cliniqueId);
+                }
             }
 
             return nombreAnnulees;
@@ -517,6 +536,11 @@ namespace Clinique2000_Services.Services
                 consultation.StatutConsultation = StatutConsultation.EnCours;
                 consultation.HeureDateDebutReele = DateTime.Now;
                 await _context.SaveChangesAsync();
+                var clinicId = await _context.PlagesHoraires
+                    .Where(plage => plage.PlageHoraireID == consultation.PlageHoraireID)
+                    .Select(plage => plage.ListeAttente.CliniqueID)
+                    .FirstAsync();
+                await _dashboardNotifier.NotifierChangementAsync(clinicId);
             }
         }
     }

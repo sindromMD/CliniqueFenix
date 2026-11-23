@@ -216,7 +216,8 @@ namespace Clinique2000_TestsUnitaires
                 Mock.Of<Clinique2000_Services.IServices.IListeAttenteService>(),
                 Mock.Of<Clinique2000_Services.IServices.IEmailService>(),
                 Mock.Of<Clinique2000_Services.IServices.ISMSService>(),
-                new SystemClock());
+                new SystemClock(),
+                Mock.Of<Clinique2000_Services.IServices.ICliniqueDashboardNotifier>());
         }
     }
 }

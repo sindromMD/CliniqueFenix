@@ -45,7 +45,8 @@ namespace Clinique2000_TestsUnitaires
                 new Mock<IListeAttenteService>().Object,
                 new Mock<IEmailService>().Object,
                 new Mock<ISMSService>().Object,
-                new SystemClock());
+                new SystemClock(),
+                Mock.Of<ICliniqueDashboardNotifier>());
 
             var result = await service.ObtenirRendezVousDuJourAsync(21, 1, date);
 
