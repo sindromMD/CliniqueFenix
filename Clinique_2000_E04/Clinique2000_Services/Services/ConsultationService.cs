@@ -6,6 +6,7 @@ using Clinique2000_Core.Models;
 using Clinique2000_Core.ViewModels;
 using Clinique2000_DataAccess.Data;
 using Clinique2000_Services.IServices;
+using Clinique2000_Utility;
 using Clinique2000_Utility.Enum;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,8 @@ namespace Clinique2000_Services.Services
         private readonly IListeAttenteService _listeAttenteService;
         private readonly IEmailService _emailService;
         private readonly ISMSService _sMSService;
+        private readonly IClock _clock;
+        private readonly ICliniqueDashboardNotifier _dashboardNotifier;
 
 
 
@@ -29,7 +32,9 @@ namespace Clinique2000_Services.Services
             IHttpContextAccessor httpContextAccessor,
             IListeAttenteService listeAttenteService,
             IEmailService emailService,
-            ISMSService sMSService) : base(context)
+            ISMSService sMSService,
+            IClock clock,
+            ICliniqueDashboardNotifier dashboardNotifier) : base(context)
         {
             _context = context;
             _servicePatient = servicePatient;
@@ -37,6 +42,8 @@ namespace Clinique2000_Services.Services
             _listeAttenteService = listeAttenteService;
             _emailService = emailService;
             _sMSService = sMSService;
+            _clock = clock;
+            _dashboardNotifier = dashboardNotifier;
 
         }
 
@@ -47,23 +54,40 @@ namespace Clinique2000_Services.Services
         /// <exception cref="ValidationException">En cas d'échec des vérifications.</exception>
         public async Task ReserverConsultationAsync(int consultationId)
         {
-            // Récupérer la consultation existante depuis la base de données
-            var consultation = await _context.Consultations.FindAsync(consultationId);
+            var consultation = await _context.Consultations
+                .Include(c => c.PlageHoraire)
+                    .ThenInclude(p => p.ListeAttente)
+                        .ThenInclude(l => l.Clinique)
+                            .ThenInclude(cl => cl.Adresse)
+                .FirstOrDefaultAsync(c => c.ConsultationID == consultationId);
 
             if (consultation == null)
             {
                 throw new ValidationException("Consultation introuvable.");
             }
 
+            if (consultation.StatutConsultation != StatutConsultation.DisponiblePourReservation)
+            {
+                throw new ValidationException("Cette plage horaire n'est plus disponible.");
+            }
+
             var patientId = await ObtenirIdPatientAsync();
 
-            // Vérifier si le patient a déjà une consultation planifiée
-            if (await PatientAConsultationPlanifieeAsync(patientId))
+            if (patientId <= 0)
+            {
+                throw new ValidationException("Vous devez être connecté avec un compte patient pour réserver.");
+            }
+
+            var listeAttente = consultation.PlageHoraire.ListeAttente;
+            if (await ObtenirRendezVousDuJourAsync(
+                    patientId,
+                    listeAttente.CliniqueID,
+                    consultation.PlageHoraire.HeureDebut.Date) != null)
             {
                 throw new ValidationException("Le patient a déjà une consultation planifiée.");
             }
 
-            if (await ListeAttenteOuverteAsync(consultationId) == false)
+            if (!listeAttente.ReservationsActivees || !listeAttente.IsOuverte)
             {
                 throw new ValidationException("La liste d'attente est fermée.");
             }
@@ -71,13 +95,14 @@ namespace Clinique2000_Services.Services
             consultation.PatientID = patientId;
             consultation.StatutConsultation = StatutConsultation.EnAttente;
             consultation.HeureDateDebutPrevue = consultation.PlageHoraire.HeureDebut;
-            consultation.HeureDateFinPrevue = DateTime.Now.AddMinutes(consultation.PlageHoraire.ListeAttente.Clinique.TempsMoyenConsultation);
+            consultation.HeureDateFinPrevue = consultation.PlageHoraire.HeureFin;
 
 
             await FermerOuLaisserOuverteListeAttente(consultation.PlageHoraire.ListeAttenteID);
             var patient= await _servicePatient.ObtenirParIdAsync(patientId);
             //_sMSService.SendConfirmationSMS(consultation, patient.NumTelephone);
             await _context.SaveChangesAsync();
+            await _dashboardNotifier.NotifierChangementAsync(listeAttente.CliniqueID);
 
         }
 
@@ -91,15 +116,14 @@ namespace Clinique2000_Services.Services
         {
 
             ListeAttente listeAttente = await _context.ListeAttentes.FindAsync(listeattenteid);
+            var plagesHoraires = await _context.PlagesHoraires
+                .Where(plage => plage.ListeAttenteID == listeattenteid)
+                .Include(plage => plage.Consultations)
+                .ToListAsync();
 
-            if (listeAttente.Consultations.Any(x => x.StatutConsultation == StatutConsultation.DisponiblePourReservation))
-            {
-                listeAttente.IsOuverte = true;
-            }
-            else
-            {
-                listeAttente.IsOuverte = false;
-            }
+            listeAttente.IsOuverte = plagesHoraires
+                .SelectMany(plage => plage.Consultations)
+                .Any(consultation => consultation.StatutConsultation == StatutConsultation.DisponiblePourReservation);
 
         }
 
@@ -146,13 +170,18 @@ namespace Clinique2000_Services.Services
             ListeAttente listeAttente = tuple.Item2;
 
             // Vérifie si la liste d'attente est ouverte
-            return listeAttente != null && listeAttente.IsOuverte;
+            return listeAttente != null && listeAttente.ReservationsActivees && listeAttente.IsOuverte;
         }
 
         public async Task<int> ObtenirIdPatientAsync()
         {
             var userId = ObtenirIdUtilisateur();
             return await ObtenirIdPatientDepuisUtilisateurAsync(userId);
+        }
+
+        public DateTime ObtenirMaintenantClinique(int utcOffset)
+        {
+            return CliniqueTimeZone.ConvertUtcToLocal(_clock.UtcNow, utcOffset);
         }
 
         public string ObtenirIdUtilisateur()
@@ -182,6 +211,49 @@ namespace Clinique2000_Services.Services
                 return false;
         }
 
+        public async Task<Consultation?> ObtenirRendezVousDuJourAsync(int patientId, int cliniqueId, DateTime date)
+        {
+            var dateDebut = date.Date;
+            var dateFin = dateDebut.AddDays(1);
+
+            return await _context.Consultations
+                .Include(c => c.PlageHoraire)
+                    .ThenInclude(p => p.ListeAttente)
+                    .ThenInclude(l => l.Clinique)
+                    .ThenInclude(cl => cl.Adresse)
+                .Where(c =>
+                    c.PatientID == patientId &&
+                    (c.StatutConsultation == StatutConsultation.EnAttente ||
+                     c.StatutConsultation == StatutConsultation.EnCours ||
+                     c.StatutConsultation == StatutConsultation.EnRetard) &&
+                    c.PlageHoraire.ListeAttente.CliniqueID == cliniqueId &&
+                    c.HeureDateDebutPrevue >= dateDebut &&
+                    c.HeureDateDebutPrevue < dateFin)
+                .OrderBy(c => c.HeureDateDebutPrevue)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<bool> PeutAnnulerAsync(Consultation consultation)
+        {
+            if (consultation.PatientID == null ||
+                consultation.StatutConsultation != StatutConsultation.EnAttente)
+            {
+                return false;
+            }
+
+            var plageHoraire = consultation.PlageHoraire;
+            var listeAttente = plageHoraire?.ListeAttente;
+            var codePostal = listeAttente?.Clinique?.Adresse?.CodePostal;
+            if (plageHoraire == null || listeAttente == null || string.IsNullOrWhiteSpace(codePostal))
+            {
+                throw new ValidationException("Les informations de la clinique du rendez-vous sont introuvables.");
+            }
+
+            var utcOffset = await ObtenirFuseauHoraireAsync(codePostal);
+            var maintenantClinique = ObtenirMaintenantClinique(utcOffset);
+            return maintenantClinique < plageHoraire.HeureDebut;
+        }
+
 
         /// <summary>
         /// Obtient une consultation à partir de son identifiant.
@@ -190,7 +262,12 @@ namespace Clinique2000_Services.Services
         /// <returns>La consultation correspondante.</returns>
         public async Task<Consultation> ObtenirConsultationParIdAsync(int consultationId)
         {
-            return await _context.Consultations.FindAsync(consultationId);
+            return await _context.Consultations
+                .Include(c => c.PlageHoraire)
+                    .ThenInclude(p => p.ListeAttente)
+                        .ThenInclude(l => l.Clinique)
+                            .ThenInclude(cl => cl.Adresse)
+                .FirstOrDefaultAsync(c => c.ConsultationID == consultationId);
         }
 
         ///// <summary>
@@ -219,6 +296,7 @@ namespace Clinique2000_Services.Services
                 consultation.StatutConsultation = StatutConsultation.EnCours;
                 consultation.HeureDateDebutReele = DateTime.Now;
                 await EditerAsync(consultation);
+                await _dashboardNotifier.NotifierChangementAsync(consultation.PlageHoraire.ListeAttente.CliniqueID);
                 ListeAttenteVM nouvelleListeAttenteVM = await _listeAttenteService.GetListeSalleAttenteOrdonnee(consultation.PlageHoraire.ListeAttenteID);
                 return nouvelleListeAttenteVM;
 
@@ -255,6 +333,7 @@ namespace Clinique2000_Services.Services
                     consultation.DetailsConsultation = details;
                     // Enregistre les modifications dans la base de donn�es.
                     await EditerAsync(consultation);
+                    await _dashboardNotifier.NotifierChangementAsync(consultation.PlageHoraire.ListeAttente.CliniqueID);
 
                     // Obtient la liste d'attente mise � jour.
                     ListeAttenteVM nouvelleListeAttenteVM = await _listeAttenteService.GetListeSalleAttenteOrdonnee(consultation.PlageHoraire.ListeAttenteID);
@@ -283,20 +362,170 @@ namespace Clinique2000_Services.Services
                 throw new ArgumentNullException(nameof(patient));
             }
 
-            var consultation = await _context.Consultations.Where(c => c.PatientID == patient.PatientId && c.StatutConsultation == StatutConsultation.EnAttente).FirstOrDefaultAsync();
+            var consultation = await _context.Consultations
+                .Include(c => c.PlageHoraire)
+                    .ThenInclude(plage => plage.ListeAttente)
+                        .ThenInclude(liste => liste.Clinique)
+                            .ThenInclude(clinique => clinique.Adresse)
+                .FirstOrDefaultAsync(c =>
+                    c.PatientID == patient.PatientId &&
+                    c.StatutConsultation == StatutConsultation.EnAttente);
             if (consultation != null)
             {
+                if (!await PeutAnnulerAsync(consultation))
+                {
+                    throw new ValidationException("L'annulation est possible uniquement avant l'heure du rendez-vous.");
+                }
+
                 consultation.StatutConsultation = StatutConsultation.DisponiblePourReservation;
                 _emailService.ConsultationCompleted(consultation.Patient);
                 consultation.PatientID = null;
-                ListeAttente listeAttente = await _context.ListeAttentes.Where(la => la.ListeAttenteID == consultation.PlageHoraire.ListeAttenteID).FirstOrDefaultAsync();
-                if (listeAttente != null)
+                var listeAttente = await _context.ListeAttentes
+                    .FirstOrDefaultAsync(la => la.ListeAttenteID == consultation.PlageHoraire.ListeAttenteID);
+                if (listeAttente == null)
                 {
-                    listeAttente.IsOuverte = true;
-
+                    throw new ValidationException("La liste d'attente associée est introuvable.");
                 }
+
+                listeAttente.IsOuverte = true;
+                listeAttente.NbAnnulationsPatient++;
                 await _context.SaveChangesAsync();
+                await _dashboardNotifier.NotifierChangementAsync(listeAttente.CliniqueID);
             }
+        }
+
+        public async Task AnnulerConsultationAsync(int consultationId, int patientId)
+        {
+            var consultation = await _context.Consultations
+                .Include(c => c.PlageHoraire)
+                    .ThenInclude(p => p.ListeAttente)
+                    .ThenInclude(l => l.Clinique)
+                    .ThenInclude(cl => cl.Adresse)
+                .FirstOrDefaultAsync(c => c.ConsultationID == consultationId);
+
+            if (consultation == null ||
+                consultation.PatientID != patientId ||
+                consultation.StatutConsultation != StatutConsultation.EnAttente)
+            {
+                throw new ValidationException("Ce rendez-vous ne peut pas être annulé.");
+            }
+
+            if (!await PeutAnnulerAsync(consultation))
+            {
+                throw new ValidationException("L'annulation est possible uniquement avant l'heure du rendez-vous.");
+            }
+
+            consultation.StatutConsultation = StatutConsultation.DisponiblePourReservation;
+            consultation.PatientID = null;
+            consultation.PlageHoraire.ListeAttente.IsOuverte = true;
+            consultation.PlageHoraire.ListeAttente.NbAnnulationsPatient++;
+            await _context.SaveChangesAsync();
+            await _dashboardNotifier.NotifierChangementAsync(consultation.PlageHoraire.ListeAttente.CliniqueID);
+        }
+
+        public async Task<int> AnnulerRendezVousNonUtilisesAsync(DateTime maintenantUtc)
+        {
+            if (maintenantUtc.Kind != DateTimeKind.Utc)
+            {
+                throw new ArgumentException("La date doit être en UTC.", nameof(maintenantUtc));
+            }
+
+            var listesAttente = await _context.ListeAttentes
+                .Include(liste => liste.Clinique)
+                    .ThenInclude(clinique => clinique.Adresse)
+                .Include(liste => liste.PlagesHoraires)
+                    .ThenInclude(plage => plage.Consultations)
+                .ToListAsync();
+
+            if (listesAttente.Count == 0)
+            {
+                return 0;
+            }
+
+            var codesPostaux = listesAttente
+                .Select(liste => liste.Clinique?.Adresse?.CodePostal)
+                .Where(codePostal => !string.IsNullOrWhiteSpace(codePostal))
+                .Distinct()
+                .ToList();
+            var fuseauxParCodePostal = await _context.AdressesQuebec
+                .Where(adresse => codesPostaux.Contains(adresse.PostalCode))
+                .ToDictionaryAsync(adresse => adresse.PostalCode, adresse => adresse.TimeZone);
+
+            var maintenantParFuseau = new Dictionary<int, DateTime>();
+            var nombreAnnulees = 0;
+            var donneesModifiees = false;
+            var cliniquesModifiees = new HashSet<int>();
+
+            foreach (var listeAttente in listesAttente)
+            {
+                var codePostal = listeAttente.Clinique?.Adresse?.CodePostal;
+                if (string.IsNullOrWhiteSpace(codePostal) ||
+                    !fuseauxParCodePostal.TryGetValue(codePostal, out var utcOffset))
+                {
+                    throw new ValidationException($"Le fuseau horaire de la clinique de la liste {listeAttente.ListeAttenteID} est introuvable.");
+                }
+
+                if (!maintenantParFuseau.TryGetValue(utcOffset, out var maintenantClinique))
+                {
+                    maintenantClinique = CliniqueTimeZone.ConvertUtcToLocal(maintenantUtc, utcOffset);
+                    maintenantParFuseau.Add(utcOffset, maintenantClinique);
+                }
+
+                var fermetureClinique = listeAttente.DateEffectivite.Date.Add(listeAttente.HeureFermeture);
+                if (maintenantClinique < fermetureClinique)
+                {
+                    continue;
+                }
+
+                if (listeAttente.IsOuverte)
+                {
+                    listeAttente.IsOuverte = false;
+                    donneesModifiees = true;
+                    cliniquesModifiees.Add(listeAttente.CliniqueID);
+                }
+
+                foreach (var plage in listeAttente.PlagesHoraires ?? new List<PlageHoraire>())
+                {
+                    foreach (var consultation in plage.Consultations ?? new List<Consultation>())
+                    {
+                        if (!consultation.PatientID.HasValue ||
+                            consultation.StatutConsultation == StatutConsultation.EnCours ||
+                            consultation.StatutConsultation == StatutConsultation.Termine ||
+                            consultation.StatutConsultation == StatutConsultation.Annulle)
+                        {
+                            continue;
+                        }
+
+                        consultation.StatutConsultation = StatutConsultation.Annulle;
+                        nombreAnnulees++;
+                        donneesModifiees = true;
+                        cliniquesModifiees.Add(listeAttente.CliniqueID);
+                    }
+                }
+            }
+
+            if (donneesModifiees)
+            {
+                await _context.SaveChangesAsync();
+                foreach (var cliniqueId in cliniquesModifiees)
+                {
+                    await _dashboardNotifier.NotifierChangementAsync(cliniqueId);
+                }
+            }
+
+            return nombreAnnulees;
+        }
+
+        private async Task<int> ObtenirFuseauHoraireAsync(string codePostal)
+        {
+            var location = await _context.AdressesQuebec
+                .FirstOrDefaultAsync(adresse => adresse.PostalCode == codePostal);
+            if (location == null)
+            {
+                throw new ValidationException("Le fuseau horaire de la clinique est introuvable.");
+            }
+
+            return location.TimeZone;
         }
 
         public async Task DebutterConsultation(int consultationId)
@@ -307,6 +536,11 @@ namespace Clinique2000_Services.Services
                 consultation.StatutConsultation = StatutConsultation.EnCours;
                 consultation.HeureDateDebutReele = DateTime.Now;
                 await _context.SaveChangesAsync();
+                var clinicId = await _context.PlagesHoraires
+                    .Where(plage => plage.PlageHoraireID == consultation.PlageHoraireID)
+                    .Select(plage => plage.ListeAttente.CliniqueID)
+                    .FirstAsync();
+                await _dashboardNotifier.NotifierChangementAsync(clinicId);
             }
         }
     }

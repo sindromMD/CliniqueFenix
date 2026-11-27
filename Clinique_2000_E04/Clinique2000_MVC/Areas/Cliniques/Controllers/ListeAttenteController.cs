@@ -2,13 +2,16 @@ using Clinique2000_Core.Models;
 using Clinique2000_Core.ViewModels;
 using Clinique2000_Services.IServices;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Identity;
 using System.ComponentModel.DataAnnotations;
 using Clinique2000_Utility.Enum;
 using Clinique2000_Utility.Constants;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
 using Clinique2000_MVC.Hubs;
+using Clinique2000_Utility;
+using System.Security.Claims;
+using System.Net.Mail;
 
 namespace Clinique2000_MVC.Areas.Cliniques.Controllers
 {
@@ -18,61 +21,202 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
 
         public IClinique2000Services _services { get; set; }
         private readonly IHubContext<MiseAJourListeAttentePatientHub> _hubContext;
+        private readonly IClock _clock;
 
         public ListeAttenteController(IClinique2000Services service,
-            IHubContext<MiseAJourListeAttentePatientHub> hubContext)
+            IHubContext<MiseAJourListeAttentePatientHub> hubContext,
+            IClock? clock = null)
         {
             _services = service;
             _hubContext = hubContext;
+            _clock = clock ?? new SystemClock();
         }
 
 
-        /// <summary>
-        /// Obtient tout les listes d'Attente ordered par date d'effectivité ,
-        /// qui sont pertinantes a la receptionniste
-        /// , puis les renvoie a la vue.
-        /// </summary>
-        /// <returns></returns>
         public async Task<ActionResult> Index()
         {
-            var user = await _services.patient.GetUserAuthAsync();
-            var employee= await _services.employesClinique.GetEmployeUserID(user.Email, user.Id);
-
-            //var employee = await _services.employesClinique.FindOneAsync(x => x.UserID == user.Id && x.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste);
-
-            //AFFICHE LES LISTES DATTENTE DE LA CLINIQUE DANS Laquelle la receptionniste travaille
-            if (employee!=null && employee.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste
-                /* await _services.employesClinique.EmployeCliniqueEstReceptionniste(employee) == true*/)
+            var acces = await EstPersonnelAutoriseAsync();
+            if (!acces.EstAuthentifie)
             {
-                List<ListeAttente> listListAttente = await _services.listeAttente.ObtenirToutAsync();
-
-                listListAttente = listListAttente.Where(x => x.DateEffectivite >= DateTime.Now && x.CliniqueID== employee.CliniqueID)
-                    .OrderBy(x => x.DateEffectivite)
-                    .ToList();
-
-                return View(listListAttente);
-
+                return Challenge();
             }
-            else
+            if (!acces.EstAutorise)
             {
-
-                //affiche tout les listes dèattentes de la bd
-                IList<ListeAttente> listListAttente = await _services.listeAttente.ObtenirToutAsync();
-                listListAttente = listListAttente.Where(x => x.DateEffectivite >= DateTime.Now)
-                .OrderBy(x => x.DateEffectivite)
-                .ToList();
-                if(User.IsInRole(AppConstants.SuperAdminRole))
-                {
-                    return View(listListAttente);
-                }
-                //Affiche les listes d'attentes de la clinique du createur
-                if (User.IsInRole(AppConstants.AdminCliniqueRole))
-                {
-                    listListAttente = listListAttente.Where(l => l.Clinique.CreateurID == user.Id).ToList();  
-                }
-                return View(listListAttente);
+                return Forbid();
             }
+
+            var user = acces.User!;
+            var maintenantUtc = _clock.UtcNow;
+            var listes = await _services.listeAttente.ObtenirDashboardAsync(acces.Cliniques, maintenantUtc);
+            var roles = ObtenirRolesAffiches(acces.Cliniques);
+            var model = new ListeAttenteDashboardVM
+            {
+                NomUtilisateur = acces.Cliniques
+                    .Select(clinique => clinique.NomEmploye)
+                    .FirstOrDefault(nom => !string.IsNullOrWhiteSpace(nom))
+                    ?? (EstAdresseCourriel(user.UserName) ? null : user.UserName)
+                    ?? "Personnel clinique",
+                Courriel = user.Email ?? User.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
+                Roles = roles,
+                Cliniques = acces.Cliniques,
+                ListesAttente = listes
+            };
+
+            return View(model);
         }
+
+        [HttpGet]
+        public async Task<IActionResult> StatsDashboard()
+        {
+            var acces = await EstPersonnelAutoriseAsync();
+            if (!acces.EstAuthentifie)
+            {
+                return Challenge();
+            }
+            if (!acces.EstAutorise)
+            {
+                return Forbid();
+            }
+
+            var listes = await _services.listeAttente.ObtenirDashboardAsync(acces.Cliniques, _clock.UtcNow);
+            return Json(listes);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> BasculerDisponibilite(int id)
+        {
+            var acces = await EstPersonnelAutoriseAsync();
+            if (!acces.EstAuthentifie)
+            {
+                return Challenge();
+            }
+            if (!acces.EstAutorise)
+            {
+                return Forbid();
+            }
+            var liste = await _services.listeAttente.ObtenirParIdAsync(id);
+            if (liste == null)
+            {
+                return NotFound();
+            }
+            if (!User.IsInRole(AppConstants.SuperAdminRole) &&
+                !acces.Cliniques.Any(clinique => clinique.CliniqueID == liste.CliniqueID))
+            {
+                return Forbid();
+            }
+
+            var nouvelleDisponibilite = !liste.ReservationsActivees;
+            if (nouvelleDisponibilite)
+            {
+                var fuseauHoraire = acces.Cliniques
+                    .FirstOrDefault(clinique => clinique.CliniqueID == liste.CliniqueID)
+                    ?.FuseauHoraire;
+                if (!fuseauHoraire.HasValue)
+                {
+                    return BadRequest(new { message = "Le fuseau horaire de la clinique est introuvable." });
+                }
+
+                var maintenantClinique = CliniqueTimeZone.ConvertUtcToLocal(_clock.UtcNow, fuseauHoraire.Value);
+                var fermetureClinique = liste.DateEffectivite.Date.Add(liste.HeureFermeture);
+                if (liste.DateEffectivite.Date < maintenantClinique.Date || maintenantClinique >= fermetureClinique)
+                {
+                    return BadRequest(new { message = "Cette liste ne peut plus être ouverte après sa date ou son heure de fermeture." });
+                }
+            }
+
+            liste.ReservationsActivees = nouvelleDisponibilite;
+            liste.IsOuverte = await _services.listeAttente.ContientCreneauxDisponiblesAsync(id);
+            await _services.listeAttente.EditerAsync(liste);
+            await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
+            await NotifierDashboardCliniqueAsync(liste.CliniqueID);
+            return Json(new { id, reservationsActivees = liste.ReservationsActivees });
+        }
+
+        private async Task<AccesDashboard> EstPersonnelAutoriseAsync(int? cliniqueId = null)
+        {
+            var user = await _services.patient.GetUserAuthAsync();
+            if (user == null)
+            {
+                return new AccesDashboard(null, new List<ListeAttenteDashboardCliniqueVM>(), false, false);
+            }
+
+            var cliniques = await _services.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                user.Id,
+                user.Email,
+                user.EmailConfirmed,
+                User.IsInRole(AppConstants.AdminCliniqueRole),
+                User.IsInRole(AppConstants.SuperAdminRole));
+            var estSuperAdmin = User.IsInRole(AppConstants.SuperAdminRole);
+            var estAutorise = estSuperAdmin ||
+                (cliniques.Count > 0 && (!cliniqueId.HasValue ||
+                    cliniques.Any(clinique => clinique.CliniqueID == cliniqueId.Value)));
+
+            if (estAutorise)
+            {
+                foreach (var clinique in cliniques)
+                {
+                    if (!clinique.FuseauHoraire.HasValue)
+                    {
+                        throw new ValidationException($"Le fuseau horaire de la clinique {clinique.NomClinique} est introuvable.");
+                    }
+
+                    clinique.MaintenantLocale = CliniqueTimeZone.ConvertUtcToLocal(
+                        _clock.UtcNow,
+                        clinique.FuseauHoraire.Value);
+                }
+            }
+
+            return new AccesDashboard(user, cliniques, true, estAutorise);
+        }
+
+        private async Task NotifierDashboardCliniqueAsync(int cliniqueId)
+        {
+            await _hubContext.Clients
+                .Group(MiseAJourListeAttentePatientHub.GroupeClinique(cliniqueId))
+                .SendAsync("MiseAJourDashboardClinique");
+        }
+
+        private List<string> ObtenirRolesAffiches(IEnumerable<ListeAttenteDashboardCliniqueVM> cliniques)
+        {
+            var roles = User.Claims
+                .Where(claim => claim.Type == ClaimTypes.Role || claim.Type == "role")
+                .Select(claim => claim.Value)
+                .Select(role => role switch
+                {
+                    AppConstants.AdminCliniqueRole => "Administrateur de clinique",
+                    AppConstants.SuperAdminRole => "SuperAdmin",
+                    _ => role
+                })
+                .ToList();
+            if (cliniques.Any(clinique => clinique.EstReceptionniste))
+            {
+                roles.Add("Réceptionniste");
+            }
+            if (cliniques.Any(clinique => clinique.EstAdminClinique))
+            {
+                roles.Add("Administrateur de clinique");
+            }
+            if (User.IsInRole(AppConstants.SuperAdminRole))
+            {
+                roles.Add("SuperAdmin");
+            }
+
+            return roles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static bool EstAdresseCourriel(string? valeur)
+        {
+            return !string.IsNullOrWhiteSpace(valeur) &&
+                MailAddress.TryCreate(valeur, out var adresse) &&
+                string.Equals(adresse.Address, valeur, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed record AccesDashboard(
+            IdentityUser? User,
+            List<ListeAttenteDashboardCliniqueVM> Cliniques,
+            bool EstAuthentifie,
+            bool EstAutorise);
 
         /// <summary>
         /// Retourne tout les Listes d'attente 
@@ -139,6 +283,102 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
                         TempData[AppConstants.Warning] = $"Désolé, mais aucune liste d'attente avec l'identifiant {id} n'a été trouvée.";
                         return View("NotFound");
                     }
+
+                    var listeAttente = listeAttenteVM.ListeAttente;
+                    var clinique = listeAttente.Clinique;
+                    var adresse = clinique.Adresse;
+                    var fuseauHoraire = await _services.adresse.GetLocationByPostalCodeAsync(adresse.CodePostal);
+                    if (fuseauHoraire == null)
+                    {
+                        throw new ValidationException("Le fuseau horaire de la clinique est introuvable.");
+                    }
+
+                    listeAttenteVM.MaintenantClinique =
+                        _services.consultation.ObtenirMaintenantClinique(fuseauHoraire.TimeZone);
+
+                    var authentifie = User.Identity?.IsAuthenticated == true;
+                    var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                    var courriel = User.FindFirstValue(ClaimTypes.Email);
+                    var employeDeClinique = authentifie
+                        ? await _services.employesClinique.FindOneAsync(employe =>
+                            employe.CliniqueID == clinique.CliniqueID &&
+                            ((userId != null && employe.UserID == userId) ||
+                             (courriel != null && employe.EmployeCliniqueCourriel == courriel)) &&
+                            (employe.EmployeCliniquePosition == EmployeCliniquePosition.Medecin ||
+                             employe.EmployeCliniquePosition == EmployeCliniquePosition.AdminClinique ||
+                             employe.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste))
+                        : null;
+                    var administrateurProprietaire =
+                        User.IsInRole(AppConstants.AdminCliniqueRole) &&
+                        clinique.CreateurID == userId;
+                    var estPersonnelClinique =
+                        employeDeClinique != null ||
+                        administrateurProprietaire ||
+                        User.IsInRole(AppConstants.SuperAdminRole);
+
+                    listeAttenteVM.AfficherNomsPatients = estPersonnelClinique;
+                    listeAttenteVM.EstPatientSeulement = !estPersonnelClinique;
+
+                    if (listeAttenteVM.EstPatientSeulement)
+                    {
+                        if (authentifie && await _services.patient.UserAuthEstPatientAsync())
+                        {
+                            var patientId = await _services.consultation.ObtenirIdPatientAsync();
+                            if (patientId > 0)
+                            {
+                                var rendezVous = await _services.consultation.ObtenirRendezVousDuJourAsync(
+                                    patientId,
+                                    clinique.CliniqueID,
+                                    listeAttenteVM.MaintenantClinique.Date);
+                                if (rendezVous != null)
+                                {
+                                    listeAttenteVM.PeutAnnulerMonRendezVous =
+                                        await _services.consultation.PeutAnnulerAsync(rendezVous);
+                                    listeAttenteVM.MonRendezVousAujourdhui = new Consultation
+                                    {
+                                        ConsultationID = rendezVous.ConsultationID,
+                                        HeureDateDebutPrevue = rendezVous.HeureDateDebutPrevue,
+                                        StatutConsultation = rendezVous.StatutConsultation,
+                                        PlageHoraire = new PlageHoraire
+                                        {
+                                            HeureDebut = rendezVous.PlageHoraire.HeureDebut,
+                                            HeureFin = rendezVous.PlageHoraire.HeureFin,
+                                            ListeAttenteID = rendezVous.PlageHoraire.ListeAttenteID
+                                        }
+                                    };
+                                }
+                            }
+                        }
+
+                        if (listeAttenteVM.MonRendezVousAujourdhui == null)
+                        {
+                            var plagesHoraires = listeAttenteVM.PlagesHoraires ?? new List<PlageHoraire>();
+                            listeAttenteVM.CreneauxDisponibles = plagesHoraires
+                                .Select(plage =>
+                                {
+                                    var consultationsDisponibles = (plage.Consultations ?? new List<Consultation>())
+                                        .Where(consultation =>
+                                            consultation.StatutConsultation == StatutConsultation.DisponiblePourReservation)
+                                        .ToList();
+
+                                    return new CreneauDisponibleVM
+                                    {
+                                        HeureDebut = plage.HeureDebut,
+                                        NombrePlacesDisponibles = consultationsDisponibles.Count,
+                                        ConsultationDisponibleID = consultationsDisponibles
+                                            .Select(consultation => consultation.ConsultationID)
+                                            .FirstOrDefault()
+                                    };
+                                })
+                                .ToList();
+                        }
+
+                        listeAttenteVM.PlagesHoraires = null;
+                        listeAttenteVM.ListeAttente = CreerListeAttenteSansDonneesPrivees(listeAttente);
+                        listeAttenteVM.Consultations = new List<Consultation>();
+                    }
+
+                    ViewData["AfficherNomsPatients"] = estPersonnelClinique;
                     return View("Details", listeAttenteVM);
                 }
                 TempData[AppConstants.Warning] = $"Désolé, mais aucune liste d'attente n'a été trouvée.";
@@ -152,21 +392,91 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
             }
         }
 
+        private static ListeAttente CreerListeAttenteSansDonneesPrivees(ListeAttente listeAttente)
+        {
+            var clinique = listeAttente.Clinique;
+            var adresse = clinique.Adresse;
+
+            return new ListeAttente
+            {
+                ListeAttenteID = listeAttente.ListeAttenteID,
+                IsOuverte = listeAttente.IsOuverte,
+                DateEffectivite = listeAttente.DateEffectivite,
+                HeureOuverture = listeAttente.HeureOuverture,
+                HeureFermeture = listeAttente.HeureFermeture,
+                NbMedecinsDispo = listeAttente.NbMedecinsDispo,
+                CliniqueID = listeAttente.CliniqueID,
+                Clinique = new Clinique
+                {
+                    CliniqueID = clinique.CliniqueID,
+                    NomClinique = clinique.NomClinique,
+                    AdresseID = clinique.AdresseID,
+                    Adresse = new Adresse
+                    {
+                        AdresseID = adresse.AdresseID,
+                        Numero = adresse.Numero,
+                        Rue = adresse.Rue,
+                        Ville = adresse.Ville,
+                        Province = adresse.Province,
+                        Pays = adresse.Pays,
+                        CodePostal = adresse.CodePostal
+                    }
+                },
+                PlagesHoraires = null,
+                Consultations = new List<Consultation>()
+            };
+        }
+
 
         [HttpGet]
         public async Task<IActionResult> Create()
         {
-            var user = await _services.patient.GetUserAuthAsync();
-            var userid = await _services.employesClinique.GetEmployeUserID(user.Email, user.Id);
-            var employee = await _services.employesClinique.FindOneAsync(x => x.UserID == user.Id && x.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste);
-            if (employee != null)
+            var acces = await EstPersonnelAutoriseAsync();
+            if (!acces.EstAuthentifie)
             {
-                ListeAttente listeAttente = await _services.listeAttente.GenererListeAttenteParDefaut(employee);
-
-                return View(listeAttente);
+                return Challenge();
+            }
+            if (!acces.EstAutorise)
+            {
+                return Forbid();
             }
 
-            return View();
+            var listeAttente = new ListeAttente { DateEffectivite = DateTime.Today };
+            if (acces.Cliniques.Count == 1)
+            {
+                listeAttente = await _services.listeAttente.ObtenirValeursParDefautCreationAsync(
+                    acces.Cliniques[0].CliniqueID);
+            }
+
+            ViewData["ChargerValeursInitiales"] = true;
+            ChargerCliniquesPourCreation(acces.Cliniques, listeAttente.CliniqueID);
+            return View(listeAttente);
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> ParametresCreation(int cliniqueId)
+        {
+            var acces = await EstPersonnelAutoriseAsync(cliniqueId);
+            if (!acces.EstAuthentifie)
+            {
+                return Challenge();
+            }
+            if (!acces.EstAutorise)
+            {
+                return Forbid();
+            }
+
+            var listeAttente = await _services.listeAttente.ObtenirValeursParDefautCreationAsync(cliniqueId);
+            return Json(new
+            {
+                cliniqueId = listeAttente.CliniqueID,
+                dateEffectivite = listeAttente.DateEffectivite.ToString("yyyy-MM-dd"),
+                heureOuverture = listeAttente.HeureOuverture.ToString(@"hh\:mm"),
+                heureFermeture = listeAttente.HeureFermeture.ToString(@"hh\:mm"),
+                nbMedecinsDispo = listeAttente.NbMedecinsDispo,
+                heurePauseDebut = listeAttente.HeurePauseDebut.ToString(@"hh\:mm"),
+                heurePauseFin = listeAttente.HeurePauseFin.ToString(@"hh\:mm")
+            });
         }
 
         // POST: ListeAttenteController/Create
@@ -183,34 +493,60 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
         {
             try
             {
+                var acces = await EstPersonnelAutoriseAsync(
+                    listeAttente.CliniqueID > 0 ? listeAttente.CliniqueID : null);
+                if (!acces.EstAuthentifie)
+                {
+                    return Challenge();
+                }
+                if (!acces.EstAutorise)
+                {
+                    return Forbid();
+                }
+                if (listeAttente.CliniqueID <= 0)
+                {
+                    ModelState.AddModelError(nameof(listeAttente.CliniqueID), "Veuillez sélectionner une clinique.");
+                }
+
                 if (ModelState.IsValid)
                 {
-                    var user = await _services.patient.GetUserAuthAsync();
-                    var userid = await _services.employesClinique.GetEmployeUserID(user.Email, user.Id);
-                    var employee = await _services.employesClinique.FindOneAsync(x => x.UserID == user.Id && x.EmployeCliniquePosition == EmployeCliniquePosition.Receptionniste);
-
-                    if (employee != null)
-                    {
-                        _services.listeAttente.AssignerCliniqueIDaListeAttente(listeAttente, employee.CliniqueID);
-                        await _services.listeAttente.CreerListeAttenteAsync(listeAttente);
-                        await _services.listeAttente.GenererPlagesHorairesAsync(listeAttente.ListeAttenteID);
-                        TempData[AppConstants.Success] = "Vous avez créé avec succès la liste d'attente";
-                        listeAttente = null;
-                        RedirectToAction("Index");
-                    }
-                    else
-                    {
-                        TempData[AppConstants.Error] = "Vous n'êtes pas un employé clinique valide";
-                    }
+                    listeAttente.ReservationsActivees = listeAttente.IsOuverte;
+                    await _services.listeAttente.CreerListeAttenteAsync(listeAttente);
+                    await _services.listeAttente.GenererPlagesHorairesAsync(listeAttente.ListeAttenteID);
+                    await NotifierDashboardCliniqueAsync(listeAttente.CliniqueID);
+                    TempData[AppConstants.Success] = "Vous avez créé avec succès la liste d'attente";
+                    return RedirectToAction("Index");
                 }
             }
             catch (Exception ex)
             {
                 ModelState.AddModelError("", ex.Message);
                 TempData[AppConstants.Error] = $"Erreur : {ex.Message}";
-                return View("create", listeAttente);
             }
-            return RedirectToAction("Index");
+
+            var accesPourVue = await EstPersonnelAutoriseAsync();
+            if (!accesPourVue.EstAuthentifie)
+            {
+                return Challenge();
+            }
+            if (!accesPourVue.EstAutorise)
+            {
+                return Forbid();
+            }
+            ViewData["ChargerValeursInitiales"] = false;
+            ChargerCliniquesPourCreation(accesPourVue.Cliniques, listeAttente.CliniqueID);
+            return View("Create", listeAttente);
+        }
+
+        private void ChargerCliniquesPourCreation(
+            IEnumerable<ListeAttenteDashboardCliniqueVM> cliniques,
+            int cliniqueSelectionnee)
+        {
+            ViewData["Cliniques"] = new SelectList(
+                cliniques,
+                nameof(ListeAttenteDashboardCliniqueVM.CliniqueID),
+                nameof(ListeAttenteDashboardCliniqueVM.NomClinique),
+                cliniqueSelectionnee > 0 ? cliniqueSelectionnee : null);
         }
 
         // GET: ListeAttenteController/Edit/5
@@ -238,8 +574,14 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
             {
                 if (ModelState.IsValid)
                 {
-                    //hardcodé
-                    listeAttente.CliniqueID = 1;
+                    var listeExistante = await _services.listeAttente.ObtenirParIdAsync(listeAttente.ListeAttenteID);
+                    if (listeExistante == null)
+                    {
+                        return NotFound();
+                    }
+
+                    listeAttente.IsOuverte = listeExistante.IsOuverte;
+                    listeAttente.CliniqueID = listeExistante.CliniqueID;
 
                     await _services.listeAttente.ModifierListeAttenteAsync(listeAttente);
                     TempData[AppConstants.Success] = $"Les données de la liste d'attente ont été modifiées avec succès.";
@@ -349,22 +691,35 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
         [HttpGet]
         public async Task<ActionResult> ShowReservationConfirmation(int id)
         {
-            var consultation = await _services.consultation.ObtenirParIdAsync(id);
-            var listeAttenteVM = await _services.listeAttente.GetListeAttenteOrdonnee(consultation.PlageHoraire.ListeAttenteID);
+            if (User.Identity?.IsAuthenticated != true)
+            {
+                return Challenge();
+            }
+
+            var consultation = await _services.consultation.ObtenirConsultationParIdAsync(id);
+            if (consultation?.PlageHoraire == null)
+            {
+                TempData[AppConstants.Warning] = "Désolé, mais aucune consultation n'a été trouvée.";
+                return View("NotFound");
+            }
+
+            var listeAttenteId = consultation.PlageHoraire.ListeAttenteID;
             try
             {
-
-                if (consultation == null)
-                {
-                    TempData[AppConstants.Warning] = "Désolé, mais aucune consultation n'a été trouvée.";
-                    return View("Details", listeAttenteVM);
-                }
                 var patientId = await _services.consultation.ObtenirIdPatientAsync();
-                // Check if the patient already has a consultation scheduled
-                if (await _services.consultation.PatientAConsultationPlanifieeAsync(patientId))
+                if (patientId <= 0)
                 {
-                    TempData[AppConstants.Warning] = "Vous avez déjà une consultation planifiée.";
-                    return View("Details", listeAttenteVM);
+                    TempData[AppConstants.Warning] = "Vous devez être connecté avec un compte patient pour réserver.";
+                    return RedirectToAction(nameof(DetailsOrdonnes), new { id = listeAttenteId });
+                }
+
+                if (await _services.consultation.ObtenirRendezVousDuJourAsync(
+                        patientId,
+                        consultation.PlageHoraire.ListeAttente.CliniqueID,
+                        consultation.PlageHoraire.HeureDebut.Date) != null)
+                {
+                    TempData[AppConstants.Warning] = "Vous avez déjà un rendez-vous aujourd'hui dans cette clinique.";
+                    return RedirectToAction(nameof(DetailsOrdonnes), new { id = listeAttenteId });
                 }
 
                 return View("ReservationSuccess", consultation);
@@ -373,8 +728,49 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
             {
                 ModelState.AddModelError(string.Empty, ex.Message);
                 TempData[AppConstants.Error] = $"Erreur : {ex.Message}";
-                return View("Details", listeAttenteVM);
+                return RedirectToAction(nameof(DetailsOrdonnes), new { id = listeAttenteId });
             }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AnnulerMonRendezVous(int consultationId, int listeAttenteId)
+        {
+            if (User.Identity?.IsAuthenticated != true)
+            {
+                return Challenge();
+            }
+
+            if (!await _services.patient.UserAuthEstPatientAsync())
+            {
+                return Forbid();
+            }
+
+            var patientId = await _services.consultation.ObtenirIdPatientAsync();
+            if (patientId <= 0)
+            {
+                return Forbid();
+            }
+
+            var consultation = await _services.consultation.ObtenirConsultationParIdAsync(consultationId);
+            if (consultation?.PlageHoraire?.ListeAttente == null ||
+                consultation.PatientID != patientId ||
+                consultation.PlageHoraire.ListeAttenteID != listeAttenteId)
+            {
+                return Forbid();
+            }
+
+            try
+            {
+                await _services.consultation.AnnulerConsultationAsync(consultationId, patientId);
+                TempData[AppConstants.Success] = "Votre rendez-vous a été annulé.";
+            }
+            catch (ValidationException ex)
+            {
+                TempData[AppConstants.Warning] = ex.Message;
+            }
+
+            return RedirectToAction(nameof(DetailsOrdonnes), new { id = listeAttenteId });
         }
 
 
@@ -403,7 +799,6 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
 
 
 
-                await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
                 return RedirectToAction("Index", "Home", new { area = "" });
             }
             catch (ValidationException ex)
@@ -419,6 +814,40 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
 
                 return RedirectToAction("Index", "Home", new { area = "" });
             }
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AnnulerRendezVous(int consultationId)
+        {
+            if (User.Identity?.IsAuthenticated != true)
+            {
+                return Challenge();
+            }
+            if (!await _services.patient.UserAuthEstPatientAsync())
+            {
+                return Forbid();
+            }
+
+            var patientId = await _services.consultation.ObtenirIdPatientAsync();
+            var consultation = await _services.consultation.ObtenirConsultationParIdAsync(consultationId);
+            if (consultation?.PlageHoraire == null)
+            {
+                return NotFound();
+            }
+
+            var listeAttenteId = consultation.PlageHoraire.ListeAttenteID;
+            try
+            {
+                await _services.consultation.AnnulerConsultationAsync(consultationId, patientId);
+                TempData[AppConstants.Success] = "Votre rendez-vous a été annulé.";
+            }
+            catch (ValidationException ex)
+            {
+                TempData[AppConstants.Warning] = ex.Message;
+            }
+
+            return RedirectToAction(nameof(DetailsOrdonnes), new { id = listeAttenteId });
         }
 
 
@@ -550,8 +979,6 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
             //var ListeSalleAttenteVM = await _services.listeAttente.TerminerConsultationEtAppellerProchainPatient(consultationID, employesID, details);
             var listeSalleAttenteVm = await _services.consultation.TerminerConsultation(consultationID, details);
             await _services.consultation.AppelerProchainPatient(employesID);
-            await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
-
             if (listeSalleAttenteVm == null)
             {
                 TempData[AppConstants.Warning] = $"Désolé, mais aucune consultation avec l'identifiant {consultationID} n'a été trouvée.";
@@ -576,8 +1003,6 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
                 {
                     // Redirect to the "ListeSalleAttente" view with the updated waiting room data.
                     TempData[AppConstants.Success] = $"Le prochain patient a été appelé.";
-
-                    await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
 
                     return RedirectToAction("Details", "EmployesCliniques", new { id = employeCliniqueID });
                 }
@@ -604,7 +1029,6 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
             {
                 await _services.consultation.TerminerConsultation(consultationId, employes.DetailsConsultation);
                 var updatedListeSalleAttente = await _services.consultation.AppelerProchainPatient(employeCliniqueID);
-                await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
                 if (updatedListeSalleAttente != null)
                 {
                     TempData[AppConstants.Success] = $"Le prochain patient a été appelé.";
@@ -635,7 +1059,6 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
             {
                 // Call the service method to complete the current consultation.
                 var updatedListeSalleAttente = await _services.consultation.TerminerConsultation(consultationId, employes.DetailsConsultation);
-                //await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
                 if (updatedListeSalleAttente != null)
                 {
                     // Redirect to the "ListeSalleAttente" view with the updated waiting room data.
@@ -669,7 +1092,6 @@ namespace Clinique2000_MVC.Areas.Cliniques.Controllers
                     return View("NotFound");
                 }
                 await _services.consultation.AnnulerConsultationAsync(patient);
-                await _hubContext.Clients.All.SendAsync("MiseAJourListeSalleDAttentePatient");
                 return RedirectToAction("Details", "Patients", new { area = "Patients", id = PatientId });
                
             }

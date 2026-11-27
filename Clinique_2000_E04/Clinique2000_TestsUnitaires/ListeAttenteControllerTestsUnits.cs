@@ -4,14 +4,19 @@ using Clinique2000_MVC.Areas.Cliniques.Controllers;
 using Clinique2000_MVC.Controllers;
 using Clinique2000_MVC.Hubs;
 using Clinique2000_Services.IServices;
+using Clinique2000_Utility;
 using Microsoft.AspNet.SignalR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Http;
 using Moq;
 using System;
 using System.Collections.Generic;
+using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace Clinique2000_TestsUnitaires
@@ -19,146 +24,308 @@ namespace Clinique2000_TestsUnitaires
     public class ListeAttenteControllerTestsUnits
     {
 
-        /// <summary>
-        //Ce test v�rifie que laction Index du ListeAttenteController renvoie correctement une vue contenant une liste de ListeAttente. Le test utilise un mock de IListeAttenteService
-        //pour retourner une liste pr�d�finie de ListeAttente. Il sassure que le r�sultat de laction Index est un ViewResult et que le mod�le de la vue correspond � la liste mock�e,
-        //tant en type quen nombre d�l�ments. Ce test confirme que le contr�leur traite et affiche correctement les donn�es provenant du service.
-        /// </summary>
         [Fact]
-        public async Task Index_RetourneVueAvecListeAttente()
+        public async Task Index_RetourneLesListesDesCliniquesEmployeurAvecStatistiques()
         {
-            // Arrange
-            var mockListeAttenteService = new Mock<IListeAttenteService>();
-            var listeAttenteTest = new List<ListeAttente>
-                    {
-                        new ListeAttente
-                        {
-                            ListeAttenteID = 1,
-                            IsOuverte = true,
-                            DateEffectivite = DateTime.Now.AddDays(5),
-                            HeureOuverture = new TimeSpan(9, 0, 0),
-                            HeureFermeture = new TimeSpan(17, 0, 0),
-                            NbMedecinsDispo = 5,
-                            //DureeConsultationMinutes = 30,
-                            CliniqueID = 1
-
-                        }
-                    };
-            var employe = new EmployesClinique
+            var user = new ApplicationUser
             {
-                EmployeCliniqueID = 1,
-                CliniqueID = 1,
-                EmployeCliniquePosition = Clinique2000_Utility.Enum.EmployeCliniquePosition.Receptionniste,
-                UserID = "2323234243423423"
+                Id = "user-1",
+                Email = "staff@example.com",
+                EmailConfirmed = true,
+                UserName = "staff"
             };
+            var cliniques = new List<ListeAttenteDashboardCliniqueVM>
+            {
+                new()
+                {
+                    CliniqueID = 1,
+                    NomClinique = "Clinique A",
+                    NomEmploye = "Staff Member",
+                    EstReceptionniste = true,
+                    FuseauHoraire = 5
+                },
+                new()
+                {
+                    CliniqueID = 2,
+                    NomClinique = "Clinique B",
+                    EstAdminClinique = true,
+                    FuseauHoraire = 5
+                }
+            };
+            var cartes = new List<ListeAttenteDashboardItemVM>
+            {
+                new()
+                {
+                    ListeAttenteID = 1,
+                    CliniqueID = 1,
+                    NomClinique = "Clinique A",
+                    DateEffectivite = new DateTime(2026, 11, 24),
+                    NbMedecinsDispo = 2,
+                    RendezVousAVenir = 1,
+                    RendezVousEnCours = 1,
+                    ConsultationsTerminees = 1,
+                    RendezVousAnnulesParPatient = 2,
+                    RendezVousNonPresentes = 3,
+                    TotalRendezVous = 8
+                },
+                new()
+                {
+                    ListeAttenteID = 2,
+                    CliniqueID = 2,
+                    NomClinique = "Clinique B",
+                    DateEffectivite = new DateTime(2026, 11, 25)
+                }
+            };
+            var controller = CreerControleurIndex(
+                cliniques,
+                cartes,
+                user,
+                new ClaimsPrincipal(new ClaimsIdentity(new[]
+                {
+                    new Claim(ClaimTypes.Role, "Réceptionniste")
+                }, "Test")));
 
-            var mockUserAuth = new Mock<ApplicationUser>();
-            var mockEmployesCliniqueService = new Mock<IEmployesCliniqueService>();
-
-            mockEmployesCliniqueService.Setup(s => s.GetEmployeUserID(It.IsAny<string>(), It.IsAny<string>()))
-                                       .ReturnsAsync(employe);
-
-            var mockClinique2000Services = new Mock<IClinique2000Services>();
-
-
-            mockClinique2000Services.Setup(s => s.patient.GetUserAuthAsync())
-                                    .ReturnsAsync(mockUserAuth.Object);
-            mockClinique2000Services.Setup(s => s.employesClinique.GetEmployeUserID(It.IsAny<string>(), It.IsAny<string>()))
-                                    .ReturnsAsync(employe);
-            mockClinique2000Services.Setup(s => s.listeAttente.ObtenirToutAsync())
-                                    .ReturnsAsync(listeAttenteTest);
-
-            var mockHubClients = new Mock<IHubClients>();
-            var mockClients = new Mock<IClientProxy>();
-            mockHubClients.Setup(x => x.All).Returns(mockClients.Object);
-
-            var mockHubContext = new Mock<Microsoft.AspNetCore.SignalR.IHubContext<MiseAJourListeAttentePatientHub>>();
-            mockHubContext.Setup(x => x.Clients).Returns(mockHubClients.Object);
-
-            var controller = new ListeAttenteController(mockClinique2000Services.Object, mockHubContext.Object);
-
-            // Act
             var result = await controller.Index();
 
-            // Assert
             var viewResult = Assert.IsType<ViewResult>(result);
-            var model = Assert.IsType<List<ListeAttente>>(viewResult.Model);
-            Assert.Equal(listeAttenteTest.Count, model.Count);
+            var model = Assert.IsType<ListeAttenteDashboardVM>(viewResult.Model);
+            Assert.Equal("Staff Member", model.NomUtilisateur);
+            Assert.Equal(user.Email, model.Courriel);
+            Assert.Equal(2, model.ListesAttente.Count);
+            var carte = Assert.Single(model.ListesAttente, item => item.ListeAttenteID == 1);
+            Assert.Equal(2, carte.NbMedecinsDispo);
+            Assert.Equal(1, carte.RendezVousAVenir);
+            Assert.Equal(2, carte.RendezVousAnnulesParPatient);
+            Assert.Equal(3, carte.RendezVousNonPresentes);
+            Assert.Contains("Réceptionniste", model.Roles);
         }
-
-
-
-
-
-
-
-
-        /// <summary>
-        ///Ce test unitaire v�rifie le comportement de l'action Index du ListeAttenteController lorsqu'il n'y a pas de donn�es disponibles.
-        ///Il utilise un service mock� IClinique2000Services, qui � son tour utilise un IListeAttenteService mock� pour retourner une liste vide
-        ///de ListeAttente. Le test s'assure que l'action Index renvoie un ViewResult avec un mod�le vide, ce qui est le comportement attendu dans
-        ///le cas o� il n'y a pas de donn�es � afficher. Ce test est essentiel pour confirmer que le contr�leur g�re correctement les situations o�
-        ///la source de donn�es est vide.
-        /// 
-        /// </summary>
 
         [Fact]
         public async Task Index_QuandAucuneDonnee_RetourneVueVide()
         {
-            // Arrange
-            var mockListeAttenteService = new Mock<IListeAttenteService>();
-            var listeAttenteTest = new List<ListeAttente>
-                    {
-                        new ListeAttente
-                        {
-                            ListeAttenteID = 1,
-                            IsOuverte = true,
-                            DateEffectivite = DateTime.Now.AddDays(5),
-                            HeureOuverture = new TimeSpan(9, 0, 0),
-                            HeureFermeture = new TimeSpan(17, 0, 0),
-                            NbMedecinsDispo = 5,
-                            //DureeConsultationMinutes = 30,
-                            CliniqueID = 1
-
-                        }
-                    };
-            var employe = new EmployesClinique
+            var user = new ApplicationUser { Id = "user-1", Email = "staff@example.com", EmailConfirmed = true };
+            var cliniques = new List<ListeAttenteDashboardCliniqueVM>
             {
-                EmployeCliniqueID = 1,
-                CliniqueID = 3,
-                EmployeCliniquePosition = Clinique2000_Utility.Enum.EmployeCliniquePosition.Receptionniste,
-                UserID = "2323234243423423"
+                new() { CliniqueID = 3, NomClinique = "Clinique C", FuseauHoraire = 5 }
             };
-
-            var mockUserAuth = new Mock<ApplicationUser>();
-            var mockEmployesCliniqueService = new Mock<IEmployesCliniqueService>();
-            mockEmployesCliniqueService.Setup(s => s.GetEmployeUserID(It.IsAny<string>(), It.IsAny<string>()))
-                                       .ReturnsAsync(employe);
-
-            var mockClinique2000Services = new Mock<IClinique2000Services>();
-            mockClinique2000Services.Setup(s => s.patient.GetUserAuthAsync())
-                                    .ReturnsAsync(mockUserAuth.Object);
-            mockClinique2000Services.Setup(s => s.employesClinique.GetEmployeUserID(It.IsAny<string>(), It.IsAny<string>()))
-                                    .ReturnsAsync(employe);
-            mockClinique2000Services.Setup(s => s.listeAttente.ObtenirToutAsync())
-                                    .ReturnsAsync(listeAttenteTest);
-
-            var mockHubClients = new Mock<IHubClients>();
-            var mockClients = new Mock<IClientProxy>();
-            mockHubClients.Setup(x => x.All).Returns(mockClients.Object);
-
-            var mockHubContext = new Mock<Microsoft.AspNetCore.SignalR.IHubContext<MiseAJourListeAttentePatientHub>>();
-            mockHubContext.Setup(x => x.Clients).Returns(mockHubClients.Object);
-
-            var controller = new ListeAttenteController(mockClinique2000Services.Object, mockHubContext.Object);
-
-            // Act
+            var controller = CreerControleurIndex(
+                cliniques,
+                new List<ListeAttenteDashboardItemVM>(),
+                user,
+                new ClaimsPrincipal(new ClaimsIdentity()));
             var result = await controller.Index();
 
-            // Assert
             var viewResult = Assert.IsType<ViewResult>(result);
-            var model = Assert.IsType<List<ListeAttente>>(viewResult.Model);
-            Assert.Empty(model);
+            var model = Assert.IsType<ListeAttenteDashboardVM>(viewResult.Model);
+            Assert.Empty(model.ListesAttente);
+        }
+
+        [Fact]
+        public async Task Create_Get_ChargeLesParametresDeLaCliniqueAutoriseeUnique()
+        {
+            var clinic = new ListeAttenteDashboardCliniqueVM
+            {
+                CliniqueID = 42,
+                NomClinique = "Clinique B",
+                FuseauHoraire = 5
+            };
+            var controller = CreerControleurIndex(
+                new List<ListeAttenteDashboardCliniqueVM> { clinic },
+                new List<ListeAttenteDashboardItemVM>(),
+                new ApplicationUser { Id = "staff-1", Email = "staff@example.com", EmailConfirmed = true },
+                new ClaimsPrincipal(new ClaimsIdentity(new[] {
+                    new Claim(ClaimTypes.Role, "Réceptionniste")
+                }, "Test")));
+            var defaults = new ListeAttente
+            {
+                CliniqueID = clinic.CliniqueID,
+                DateEffectivite = DateTime.Today.AddDays(1),
+                HeureOuverture = TimeSpan.FromHours(8),
+                HeureFermeture = TimeSpan.FromHours(17),
+                NbMedecinsDispo = 3,
+                HeurePauseDebut = TimeSpan.FromHours(12),
+                HeurePauseFin = TimeSpan.FromHours(13)
+            };
+            Mock.Get(controller._services).Setup(service =>
+                    service.listeAttente.ObtenirValeursParDefautCreationAsync(clinic.CliniqueID))
+                .ReturnsAsync(defaults);
+
+            var result = await controller.Create();
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<ListeAttente>(view.Model);
+            Assert.Equal(clinic.CliniqueID, model.CliniqueID);
+            Assert.Equal(3, model.NbMedecinsDispo);
+            Assert.True((bool)view.ViewData["ChargerValeursInitiales"]);
+        }
+
+        [Fact]
+        public async Task Index_RefuseUnUtilisateurSansCliniqueAutorisee()
+        {
+            var user = new ApplicationUser { Id = "patient", Email = "patient@example.com" };
+            var controller = CreerControleurIndex(
+                new List<ListeAttenteDashboardCliniqueVM>(),
+                new List<ListeAttenteDashboardItemVM>(),
+                user,
+                new ClaimsPrincipal(new ClaimsIdentity()));
+
+            var result = await controller.Index();
+
+            Assert.IsType<ForbidResult>(result);
+        }
+
+        [Fact]
+        public async Task BasculerDisponibilite_RefuseUneCliniqueNonAutorisee()
+        {
+            var user = new ApplicationUser
+            {
+                Id = "staff-1",
+                Email = "staff@example.com",
+                EmailConfirmed = true
+            };
+            var services = new Mock<IClinique2000Services>();
+            services.Setup(service => service.patient.GetUserAuthAsync()).ReturnsAsync(user);
+            services.Setup(service => service.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<bool>(),
+                    It.IsAny<bool>(),
+                    It.IsAny<bool>()))
+                .ReturnsAsync(new List<ListeAttenteDashboardCliniqueVM>
+                {
+                    new() { CliniqueID = 1, NomClinique = "Clinique A", FuseauHoraire = 5, EstReceptionniste = true }
+                });
+            services.Setup(service => service.listeAttente.ObtenirParIdAsync(29))
+                .ReturnsAsync(new ListeAttente { ListeAttenteID = 29, CliniqueID = 2 });
+            var hubContext = Mock.Of<Microsoft.AspNetCore.SignalR.IHubContext<MiseAJourListeAttentePatientHub>>();
+            var unauthorizedController = new ListeAttenteController(services.Object, hubContext)
+            {
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                        {
+                            new Claim(ClaimTypes.Role, "Réceptionniste")
+                        }, "Test"))
+                    }
+                }
+            };
+
+            var result = await unauthorizedController.BasculerDisponibilite(29);
+
+            Assert.IsType<ForbidResult>(result);
+        }
+
+        [Fact]
+        public async Task BasculerDisponibilite_PeutDesactiverPuisReactiverUneListeAvecDesCreneauxDisponibles()
+        {
+            var user = new ApplicationUser
+            {
+                Id = "staff-1",
+                Email = "staff@example.com",
+                EmailConfirmed = true
+            };
+            var clinique = new Clinique
+            {
+                CliniqueID = 1,
+                NomClinique = "Clinique A",
+                Adresse = new Adresse { CodePostal = "H1A 1A1" }
+            };
+            var liste = new ListeAttente
+            {
+                ListeAttenteID = 29,
+                CliniqueID = clinique.CliniqueID,
+                Clinique = clinique,
+                DateEffectivite = new DateTime(2026, 11, 24),
+                HeureFermeture = new TimeSpan(17, 0, 0),
+                IsOuverte = true,
+                ReservationsActivees = true
+            };
+            var services = new Mock<IClinique2000Services>();
+            services.Setup(service => service.patient.GetUserAuthAsync()).ReturnsAsync(user);
+            services.Setup(service => service.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                    user.Id,
+                    user.Email,
+                    user.EmailConfirmed,
+                    false,
+                    false))
+                .ReturnsAsync(new List<ListeAttenteDashboardCliniqueVM>
+                {
+                    new() { CliniqueID = clinique.CliniqueID, NomClinique = clinique.NomClinique, FuseauHoraire = 5 }
+                });
+            services.Setup(service => service.listeAttente.ObtenirParIdAsync(liste.ListeAttenteID))
+                .ReturnsAsync(liste);
+            services.Setup(service => service.listeAttente.ContientCreneauxDisponiblesAsync(liste.ListeAttenteID))
+                .ReturnsAsync(true);
+            services.Setup(service => service.listeAttente.EditerAsync(liste)).ReturnsAsync(liste);
+            var hubClient = new Mock<IClientProxy>();
+            hubClient.Setup(client => client.SendCoreAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<object?[]>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+            var hubClients = new Mock<IHubClients>();
+            hubClients.Setup(clients => clients.All).Returns(hubClient.Object);
+            hubClients.Setup(clients => clients.Group("clinique-1")).Returns(hubClient.Object);
+            var hubContext = new Mock<Microsoft.AspNetCore.SignalR.IHubContext<MiseAJourListeAttentePatientHub>>();
+            hubContext.Setup(context => context.Clients).Returns(hubClients.Object);
+
+            var controller = new ListeAttenteController(
+                services.Object,
+                hubContext.Object,
+                Mock.Of<IClock>(clock => clock.UtcNow == new DateTime(2026, 11, 23, 12, 0, 0, DateTimeKind.Utc)));
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    {
+                        new Claim(ClaimTypes.Role, "Réceptionniste")
+                    }, "Test"))
+                }
+            };
+
+            Assert.IsType<JsonResult>(await controller.BasculerDisponibilite(liste.ListeAttenteID));
+            Assert.False(liste.ReservationsActivees);
+            Assert.True(liste.IsOuverte);
+
+            Assert.IsType<JsonResult>(await controller.BasculerDisponibilite(liste.ListeAttenteID));
+            Assert.True(liste.ReservationsActivees);
+            Assert.True(liste.IsOuverte);
+        }
+
+        private static ListeAttenteController CreerControleurIndex(
+            List<ListeAttenteDashboardCliniqueVM> cliniques,
+            List<ListeAttenteDashboardItemVM> listes,
+            ApplicationUser user,
+            ClaimsPrincipal principal)
+        {
+            var services = new Mock<IClinique2000Services>();
+            services.Setup(service => service.patient.GetUserAuthAsync()).ReturnsAsync(user);
+            services.Setup(service => service.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<bool>(),
+                    It.IsAny<bool>(),
+                    It.IsAny<bool>()))
+                .ReturnsAsync(cliniques);
+            services.Setup(service => service.listeAttente.ObtenirDashboardAsync(
+                    It.IsAny<IReadOnlyCollection<ListeAttenteDashboardCliniqueVM>>(),
+                    It.IsAny<DateTime>()))
+                .ReturnsAsync(listes);
+
+            var hubClients = new Mock<IHubClients>();
+            hubClients.Setup(clients => clients.All).Returns(new Mock<IClientProxy>().Object);
+            var hubContext = new Mock<Microsoft.AspNetCore.SignalR.IHubContext<MiseAJourListeAttentePatientHub>>();
+            hubContext.Setup(context => context.Clients).Returns(hubClients.Object);
+
+            var controller = new ListeAttenteController(services.Object, hubContext.Object);
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = principal }
+            };
+            return controller;
         }
 
 
@@ -305,15 +472,23 @@ namespace Clinique2000_TestsUnitaires
             var listeAttente = new ListeAttente
             {
                 ListeAttenteID = 1,
+                CliniqueID = 42,
                 IsOuverte = true,
+                ReservationsActivees = false,
                 DateEffectivite = new DateTime(2023, 1, 1),
                 HeureOuverture = new TimeSpan(9, 0, 0),
                 HeureFermeture = new TimeSpan(17, 0, 0),
                 NbMedecinsDispo = 5,
                 //DureeConsultationMinutes = 30,
             };
-            // Set up the mock to return a completed Task<ListeAttente> with the listeAttente entity
-            mockClinique2000Services.Setup(s => s.listeAttente.EditerAsync(listeAttente)).Returns(Task.FromResult(listeAttente));
+            mockClinique2000Services.Setup(s => s.listeAttente.ObtenirParIdAsync(listeAttente.ListeAttenteID))
+                .ReturnsAsync(listeAttente);
+            mockClinique2000Services.Setup(s => s.listeAttente.ModifierListeAttenteAsync(
+                    It.Is<ListeAttente>(item =>
+                        item.CliniqueID == listeAttente.CliniqueID &&
+                        !item.ReservationsActivees &&
+                        item.IsOuverte)))
+                .ReturnsAsync(listeAttente);
 
             var mockHubClients = new Mock<IHubClients>();
             var mockClients = new Mock<IClientProxy>();
@@ -398,6 +573,24 @@ namespace Clinique2000_TestsUnitaires
 
             // Arrange
             var mockService = new Mock<IClinique2000Services>();
+            var user = new ApplicationUser { Id = "staff-1", Email = "staff@example.com", EmailConfirmed = true };
+            var authorizedClinics = new List<ListeAttenteDashboardCliniqueVM>
+            {
+                new() { CliniqueID = 42, NomClinique = "Clinique B", FuseauHoraire = 5 }
+            };
+            mockService.Setup(service => service.patient.GetUserAuthAsync()).ReturnsAsync(user);
+            mockService.Setup(service => service.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ReturnsAsync(authorizedClinics);
+            mockService.Setup(service => service.listeAttente.ObtenirValeursParDefautCreationAsync(42))
+                .ReturnsAsync(new ListeAttente
+                {
+                    CliniqueID = 42,
+                    DateEffectivite = DateTime.Today.AddDays(1),
+                    HeureOuverture = TimeSpan.FromHours(8),
+                    HeureFermeture = TimeSpan.FromHours(17),
+                    NbMedecinsDispo = 3
+                });
             var mockHubClients = new Mock<IHubClients>();
             var mockClients = new Mock<IClientProxy>();
             mockHubClients.Setup(x => x.All).Returns(mockClients.Object);
@@ -407,12 +600,22 @@ namespace Clinique2000_TestsUnitaires
 
             var controller = new ListeAttenteController(mockService.Object, mockHubContext.Object);
             ListeAttente listeAttente1 = new ListeAttente { ListeAttenteID = 1, };
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    {
+                        new Claim(ClaimTypes.Role, "Réceptionniste")
+                    }, "Test"))
+                }
+            };
             // Act
-            var result = controller.Create();
+            var result = await controller.Create();
 
             // Assert
             var viewResult = Assert.IsType<ViewResult>(result);
-            Assert.Null(viewResult.Model); // Confirme que la vue est retourn�e sans mod�le
+            Assert.Equal(42, Assert.IsType<ListeAttente>(viewResult.Model).CliniqueID);
         }
 
 
@@ -427,9 +630,25 @@ namespace Clinique2000_TestsUnitaires
         {
             // Arrange
             var mockService = new Mock<IClinique2000Services>();
+            var user = new ApplicationUser { Id = "staff-1", Email = "staff@example.com", EmailConfirmed = true };
+            mockService.Setup(service => service.patient.GetUserAuthAsync()).ReturnsAsync(user);
+            mockService.Setup(service => service.listeAttente.ObtenirCliniquesAutoriseesDashboardAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ReturnsAsync(new List<ListeAttenteDashboardCliniqueVM>
+                {
+                    new() { CliniqueID = 42, NomClinique = "Clinique B", FuseauHoraire = 5 }
+                });
+            mockService.Setup(service => service.listeAttente.CreerListeAttenteAsync(It.IsAny<ListeAttente>()))
+                .ReturnsAsync((ListeAttente created) => created);
+            mockService.Setup(service => service.listeAttente.GenererPlagesHorairesAsync(It.IsAny<int>()))
+                .Returns(Task.CompletedTask);
             var mockHubClients = new Mock<IHubClients>();
             var mockClients = new Mock<IClientProxy>();
             mockHubClients.Setup(x => x.All).Returns(mockClients.Object);
+            mockHubClients.Setup(x => x.Group("clinique-42")).Returns(mockClients.Object);
+            mockClients.Setup(client => client.SendCoreAsync(
+                    It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
 
             var mockHubContext = new Mock<Microsoft.AspNetCore.SignalR.IHubContext<MiseAJourListeAttentePatientHub>>();
             mockHubContext.Setup(x => x.Clients).Returns(mockHubClients.Object);
@@ -441,20 +660,30 @@ namespace Clinique2000_TestsUnitaires
             tempDataMock.SetupGet(t => t[It.IsAny<string>()]).Returns("Valeur de Mock");
             controller.TempData = tempDataMock.Object;
 
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    {
+                        new Claim(ClaimTypes.Role, "Réceptionniste")
+                    }, "Test"))
+                }
+            };
+
             var validListeAttente = new ListeAttente
             {
                 ListeAttenteID = 1,
                 IsOuverte = true,
-                DateEffectivite = DateTime.Now,
+                DateEffectivite = DateTime.Today.AddDays(1),
                 HeureOuverture = new TimeSpan(9, 0, 0),
                 HeureFermeture = new TimeSpan(17, 0, 0),
                 NbMedecinsDispo = 5,
                 //DureeConsultationMinutes = 30,
-                CliniqueID = 1,
+                CliniqueID = 42,
             };
 
             // Configurez le service pour retourner un r�sultat de r�ussite (peut �tre simul�)
-            mockService.Setup(s => s.listeAttente.CreerAsync(It.IsAny<ListeAttente>()));
 
 
             controller.ModelState.Clear();
@@ -463,8 +692,10 @@ namespace Clinique2000_TestsUnitaires
             var result = await controller.Create(validListeAttente);
 
             // Assert
-            var redirectToActionResult = Assert.IsType<ViewResult>(result);
-            Assert.Equal("create", redirectToActionResult.ViewName);
+            var redirectToActionResult = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal("Index", redirectToActionResult.ActionName);
+            mockService.Verify(service => service.listeAttente.CreerListeAttenteAsync(
+                It.Is<ListeAttente>(item => item.CliniqueID == 42 && item.ReservationsActivees)), Times.Once);
         }
 
 

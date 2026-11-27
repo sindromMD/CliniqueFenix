@@ -1,35 +1,61 @@
-﻿@model IEnumerable<Clinique2000_Core.Models.Consultation>
+@model IEnumerable<Clinique2000_Core.Models.Consultation>
 
-<div class="container ps-0">
-    @* <h2>Plages Horaires</h2> *@
-    <table class="table mb-0 pb-0">
-        <thead>
-            <tr>
-               @*  <th>Data</th> *@
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var consultation in Model)
-            {
-                <tr id="tableinterne" class="pb-0 mb-0">
-                    <td class="ps-0 mb-0">
-                        @* <div>@consultation.ConsultationID</div> *@
-                        <div>Medecin:</div>
-                        <div>Patient:</div>
-              @*           <div>Salle:</div> *@
-                    </td>
-                <td>
-                        <input type="hidden" name="id" value="@consultation.ConsultationID" />
-                    <form method="post"> <button type="submit" class="btn btn-success" asp-area="Cliniques" asp-controller="ListeAttente" asp-action="ReserverConsultation">Reserver</button>
+<div class="d-flex flex-column gap-3">
+    @foreach (var consultation in Model)
+    {
+        <article class="border rounded p-3">
+            <div class="row g-3 align-items-center">
+                <div class="col-12 col-md-8">
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <small class="d-block text-uppercase text-muted">Médecin</small>
+                            <strong>
+                                @if (consultation.EmployeClinique != null)
+                                {
+                                    @($"{consultation.EmployeClinique.EmployeCliniquePrenom} {consultation.EmployeClinique.EmployeCliniqueNom}")
+                                }
+                                else
+                                {
+                                    @:—
+                                }
+                            </strong>
+                        </div>
+                        <div class="col-sm-6">
+                            <small class="d-block text-uppercase text-muted">Patient</small>
+                            <strong>
+                                @if (consultation.Patient != null)
+                                {
+                                    @($"{consultation.Patient.Prenom} {consultation.Patient.Nom}")
+                                }
+                                else
+                                {
+                                    @:—
+                                }
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4 d-flex align-items-center justify-content-md-end">
+                    @if (consultation.StatutConsultation == Clinique2000_Utility.Enum.StatutConsultation.DisponiblePourReservation)
+                    {
+                        <form class="w-100" asp-action="ReserverConsultation"
+                              asp-controller="ListeAttente"
+                              asp-area="Cliniques"
+                              method="post">
+                            <input type="hidden" name="id" value="@consultation.ConsultationID" />
+                            <button type="submit" class="button-green-action w-100">Réserver</button>
                         </form>
-                </td>
-
-                 @*    <td>
-                        <a asp-controller="ListeAttente" asp-action="ModifierPlageHoraire" asp-route-id="@consultation.ConsultationID" class="btn btn-primary">Modifier</a>
-                        <a asp-controller="ListeAttente" asp-action="SupprimerPlageHoraire" asp-route-id="@consultation.ConsultationID" class="btn btn-danger">Supprimer</a>
-                    </td> *@
-                </tr>
-            }
-        </tbody>
-    </table>
+                    }
+                    else if (consultation.StatutConsultation == Clinique2000_Utility.Enum.StatutConsultation.Annulle)
+                    {
+                        <span class="badge rounded-pill text-bg-secondary">Annulé</span>
+                    }
+                    else
+                    {
+                        <span class="badge rounded-pill text-bg-primary">Réservé</span>
+                    }
+                </div>
+            </div>
+        </article>
+    }
 </div>
